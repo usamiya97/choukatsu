@@ -1,0 +1,61 @@
+{
+  "daily_targets": {
+    "total_g": 18,
+    "soluble_g": 6,
+    "insoluble_g": 12,
+    "note": "総量は食事摂取基準2025年版(成人女性18g以上/男性21g以上)。2軸は理想比 水溶性1:不溶性2 に基づく配分。"
+  },
+  "rationale": {
+    "ideal_ratio": "1:2",
+    "japanese_actual_ratio": "1:4（厚労省）",
+    "preset_median_soluble_ratio": 0.22,
+    "why_not_half": "9g/9gにすると現実的な食事で到達不可能になり、水溶性の軸が永久に未達＝キャラが永久にくすむ。ポジティブ設計が崩れる。"
+  },
+  "character_state": {
+    "driver": "直近7日間の総量平均",
+    "stages": [
+      {
+        "stage": 1,
+        "range_g": "0-4",
+        "state": "丸まって寝ている"
+      },
+      {
+        "stage": 2,
+        "range_g": "4-8",
+        "state": "目を開けた。色が薄い"
+      },
+      {
+        "stage": 3,
+        "range_g": "8-12",
+        "state": "起き上がる。ふっくら"
+      },
+      {
+        "stage": 4,
+        "range_g": "12-16",
+        "state": "色つやが出る"
+      },
+      {
+        "stage": 5,
+        "range_g": "16+",
+        "state": "ぴかぴか。まわりに菌が舞う"
+      }
+    ],
+    "rules": [
+      "日次メーターに紐づけない（毎朝キャラが死んで見える）",
+      "下がるのではなく『今日は育たなかった』",
+      "連続記録は切らさない（週単位で見る）"
+    ]
+  },
+  "display_rules": {
+    "hide_decimals": true,
+    "never_show_terms": [
+      "水溶性",
+      "不溶性"
+    ],
+    "use_instead": {
+      "soluble": "菌のごはん",
+      "insoluble": "おそうじ"
+    },
+    "attribution": "日本食品標準成分表（八訂）増補2023年から引用"
+  }
+}
