@@ -13,7 +13,7 @@ import ServingChip from '../../components/ServingChip';
 import QuantitySheet from '../../components/QuantitySheet';
 import Toast from '../../components/Toast';
 import { CloseIcon } from '../../components/Icons';
-import { TARGETS, categories, searchFoods, searchServings, servingsOf } from '../../lib/dataset';
+import { categories, searchFoods, searchServings, servingsOf } from '../../lib/dataset';
 import { fillRatio, formatCount, progressWord } from '../../lib/format';
 import { haptics } from '../../lib/motion';
 import { useStore } from '../../lib/store';
@@ -21,7 +21,7 @@ import { colors, hit, radius, space, type } from '../../lib/theme';
 import type { Serving } from '../../lib/types';
 
 export default function LogScreen() {
-  const { gut, frequent, addEntry, todayEntries } = useStore();
+  const { gut, frequent, targets, addEntry, todayEntries } = useStore();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
@@ -73,7 +73,7 @@ export default function LogScreen() {
         keyboardDismissMode="on-drag"
       >
         <View style={styles.summary}>
-          <Text style={styles.summaryText}>{progressWord(gut.today.total, TARGETS.total)}</Text>
+          <Text style={styles.summaryText}>{progressWord(gut.today.total, targets.total)}</Text>
           <View
             style={styles.track}
             accessible
@@ -82,11 +82,11 @@ export default function LogScreen() {
             accessibilityValue={{
               min: 0,
               max: 100,
-              now: Math.round(fillRatio(gut.today.total, TARGETS.total) * 100),
+              now: Math.round(fillRatio(gut.today.total, targets.total) * 100),
             }}
           >
             <View
-              style={[styles.fill, { width: `${Math.round(fillRatio(gut.today.total, TARGETS.total) * 100)}%` }]}
+              style={[styles.fill, { width: `${Math.round(fillRatio(gut.today.total, targets.total) * 100)}%` }]}
             />
           </View>
           <Text style={styles.summarySub}>今日 {todayEntries.length}件 記録しました</Text>

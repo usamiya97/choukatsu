@@ -26,6 +26,11 @@ export type Profile = {
   concerns: string[];
   /** q10。永続の除外。提案生成時に必ずフィルタする */
   excludedFoods: string[];
+  /**
+   * 1日の目標総量(g)。null なら既定（data/targets.json の app_target.default_total_g）。
+   * 段階の閾値もこれに連動する（lib/state.ts stageThresholds）。
+   */
+  targetTotal: number | null;
 };
 
 export const EMPTY_PROFILE: Profile = {
@@ -36,14 +41,19 @@ export const EMPTY_PROFILE: Profile = {
   stoolProfile: null,
   concerns: [],
   excludedFoods: [],
+  targetTotal: null,
 };
 
 export type UiState = {
   stage: Stage;
-  lastCoach: { id: string; date: string } | null;
+  /**
+   * 直近に出したコーチ提案（新しい順・最大7件）。
+   * 1件だけだと「1日おきに同じ文」が起きるので履歴で持つ（lib/coach.ts AVOID_DAYS）。
+   */
+  recentCoach: { id: string; date: string }[];
 };
 
-export const EMPTY_UI: UiState = { stage: 1, lastCoach: null };
+export const EMPTY_UI: UiState = { stage: 1, recentCoach: [] };
 
 async function read<T>(key: string, fallback: T): Promise<T> {
   try {

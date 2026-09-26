@@ -2,7 +2,7 @@
  * アプリ全体の状態。画面はここから値をもらうだけにして、計算は lib/state.ts に置く。
  */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { CAUTIONS, COACH, SERVINGS, SWAPS, TARGETS, findServing } from './dataset';
+import { CAUTIONS, COACH, SERVINGS, SWAPS, findServing, targetsFor } from './dataset';
 import { pickCoach, type CoachSuggestion } from './coach';
 import { computeGutState, dateKey, indexServings, shiftDays, type GutState } from './state';
 import {
@@ -18,7 +18,7 @@ import {
   type Profile,
   type UiState,
 } from './storage';
-import type { LogEntry, Logs, Serving, Totals } from './types';
+import type { LogEntry, Logs, Serving, Targets, Totals } from './types';
 
 type Store = {
   ready: boolean;
@@ -27,6 +27,8 @@ type Store = {
   profile: Profile;
   ui: UiState;
   gut: GutState;
+  /** 目標値。総量はユーザー設定（既定25g）。画面は必ずここから読む */
+  targets: Targets;
   coach: CoachSuggestion | null;
   /** よく食べるもの（直近30日の記録頻度順）。最上部に出して1タップにする */
   frequent: Serving[];
@@ -62,9 +64,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const byLabel = useMemo(() => indexServings(SERVINGS), []);
 
+  // 目標値は設定で変わる。段階の閾値もこれに連動するので、まずこれを決める
+  const targets = useMemo(() => targetsFor(profile.targetTotal), [profile.targetTotal]);
+
   const gut = useMemo(
-    () => computeGutState(logs, today, SERVINGS, ui.stage, profile.estTotal),
-    [logs, today, ui.stage, profile.estTotal]
+    () => computeGutState(logs, today, SERVINGS, ui.stage, profile.estTotal, targets.total),
+    [logs, today, ui.stage, profile.estTotal, targets.total]
   );
 
   // 段階が動いたら保存する（ヒステリシスは前回値に依存するので、ここが記憶の本体）
@@ -84,19 +89,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         catalog: COACH,
         swaps: SWAPS,
         cautions: CAUTIONS,
-        targets: TARGETS,
+        targets,
         excludedFoods: profile.excludedFoods,
-        lastShown: ui.lastCoach,
+        recentShown: ui.recentCoach,
       }),
-    [logs, today, profile.excludedFoods, ui.lastCoach]
+    [logs, today, targets, profile.excludedFoods, ui.recentCoach]
   );
 
-  // 今日出した提案を覚える（明日は別のものを出す）
+  // 今日出した提案を覚える（数日は別のものを出す）
   useEffect(() => {
     if (!ready || !coach) return;
-    if (ui.lastCoach?.id === coach.item.id && ui.lastCoach?.date === today) return;
-    if (ui.lastCoach?.date === today) return;
-    const next = { ...ui, lastCoach: { id: coach.item.id, date: today } };
+    const already = ui.recentCoach.some((r) => r.date === today);
+    if (already) return;
+    const next = {
+      ...ui,
+      recentCoach: [{ id: coach.item.id, date: today }, ...ui.recentCoach].slice(0, 7),
+    };
     setUi(next);
     void saveUi(next);
   }, [ready, coach, today, ui]);
@@ -192,6 +200,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     profile,
     ui,
     gut,
+    targets,
     coach,
     frequent,
     todayEntries: logs[today] ?? [],

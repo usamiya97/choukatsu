@@ -17,7 +17,7 @@ import {
   recentMissStreak,
   resolveStage,
   shiftDays,
-  STAGE_THRESHOLDS,
+  stageThresholds,
   stageScore,
   weekLogDays,
 } from './state.ts';
@@ -80,7 +80,7 @@ test('記録初日だけは今日を使う（何も動かないと記録した�
   assert.ok(score.score > 0);
 });
 
-test('ヒステリシス: 上がる閾値と下がる閾値が1.5gずれている', () => {
+test('ヒステリシス: 上がる閾値と下がる閾値が1.5gずれている（目標18gの場合）', () => {
   // 上がる: 4/9/18/25（段階4=目標量18g・段階5=理想値25g）
   assert.equal(resolveStage(3.9, 1), 1);
   assert.equal(resolveStage(4.0, 1), 2);
@@ -101,21 +101,51 @@ test('ヒステリシス: 上がる閾値と下がる閾値が1.5gずれてい�
   assert.equal(resolveStage(2.4, 2), 1);
 });
 
-test('閾値の表そのものを縛る（片方だけ動かしてヒステリシスが壊れるのを防ぐ）', () => {
-  const { up, down } = STAGE_THRESHOLDS;
-  assert.equal(up[4], 18.0, '段階4は目標量18g');
-  assert.equal(up[5], 25.0, '段階5は理想値25g');
-  for (const stage of [2, 3, 4, 5] as const) {
-    assert.equal(
-      Number((up[stage] - down[stage]).toFixed(2)),
-      1.5,
-      `段階${stage}のヒステリシスが1.5gでない`
-    );
+test('閾値は目標値に連動する。目標18gで 4/9/18/25（摂取基準の2段構えと一致）', () => {
+  const { up, down } = stageThresholds(18);
+  assert.deepEqual([up[2], up[3], up[4], up[5]], [4, 9, 18, 25]);
+  assert.deepEqual([down[2], down[3], down[4], down[5]], [2.5, 7.5, 16.5, 23.5]);
+});
+
+test('目標を変えると閾値も動く（目標＝段階4・その先に段階5が残る）', () => {
+  for (const target of [18, 21, 25, 30]) {
+    const { up, down } = stageThresholds(target);
+    assert.equal(up[4], target, `目標${target}g のとき段階4が目標と一致しない`);
+    assert.ok(up[5] > target, `目標${target}g のとき段階5に伸びしろが無い`);
+    // ヒステリシスは全段階1.5g
+    for (const stage of [2, 3, 4, 5] as const) {
+      assert.equal(Number((up[stage] - down[stage]).toFixed(2)), 1.5, `目標${target}g 段階${stage}`);
+    }
+    // 単調増加（段階飛びの防止）
+    for (const stage of [3, 4, 5] as const) {
+      assert.ok(up[stage] > up[(stage - 1) as 2 | 3 | 4], `目標${target}g 段階${stage}が単調でない`);
+    }
+    // 0.5g刻み（読めない閾値を作らない）
+    for (const stage of [2, 3, 4, 5] as const) {
+      assert.equal((up[stage] * 2) % 1, 0, `目標${target}g 段階${stage}が0.5g刻みでない`);
+    }
   }
-  // 上がる閾値は単調増加。下がる閾値が1つ下の上がる閾値を下回らない（段階飛びの防止）
-  for (const stage of [3, 4, 5] as const) {
-    assert.ok(up[stage] > up[(stage - 1) as 2 | 3 | 4], `段階${stage}の閾値が単調でない`);
+});
+
+test('段階5は32gで打ち止め（それ以上はプリセットで続けられない）', () => {
+  // 目標30gに「目標+7g」を当てると37g平均が必要になり、最上段が飾りになる
+  assert.equal(stageThresholds(30).up[5], 32);
+  assert.equal(stageThresholds(25).up[5], 32);
+  assert.equal(stageThresholds(18).up[5], 25, '目標18gでは上限に当たらない');
+  // 上限に当たっても段階4より上であることは守る
+  for (const target of [18, 21, 25, 30]) {
+    const { up } = stageThresholds(target);
+    assert.ok(up[5] > up[4], `目標${target}g で段階5が段階4以下`);
   }
+});
+
+test('目標25gなら 5.5/12.5/25/32（既定の設定）', () => {
+  const { up } = stageThresholds(25);
+  assert.deepEqual([up[2], up[3], up[4], up[5]], [5.5, 12.5, 25, 32]);
+  // 目標25gの人が18g平均でも段階3（目標に届いていないので上がらない）
+  assert.equal(resolveStage(18, 3, 25), 3);
+  assert.equal(resolveStage(25, 3, 25), 4);
+  assert.equal(resolveStage(32, 4, 25), 5);
 });
 
 test('目標到達で段階4に上がり、理想値まで段階5の伸びしろが残る', () => {

@@ -19,9 +19,14 @@ export type MeterProps = {
   hint?: string | null;
   /** 診断の推定値で暫定表示している間の注記 */
   note?: string | null;
+  /**
+   * バーの途中に置く目印。目標を公的な目安より高く設定したときに使う。
+   * 目標だけを見せると「毎日届かない」になるので、**手前に越えられる線を1本置く**。
+   */
+  marker?: { ratio: number; label: string; passed: boolean } | null;
 };
 
-export default function Meter({ fill, headline, hint, note }: MeterProps) {
+export default function Meter({ fill, headline, hint, note, marker }: MeterProps) {
   const reduced = useReducedMotion();
   const width = useRef(new Animated.Value(fill)).current;
 
@@ -55,7 +60,18 @@ export default function Meter({ fill, headline, hint, note }: MeterProps) {
           // 0幅のときに丸みが潰れて見えるのを防ぐ
           needsOffscreenAlphaCompositing
         />
+        {marker ? (
+          <View
+            style={[styles.marker, { left: `${Math.round(marker.ratio * 100)}%` }]}
+            pointerEvents="none"
+          />
+        ) : null}
       </View>
+      {marker ? (
+        <Text style={[styles.markerLabel, marker.passed && styles.markerPassed]}>
+          {marker.passed ? `${marker.label}は超えました` : `${marker.label}の目印`}
+        </Text>
+      ) : null}
       {hint ? <Text style={styles.hint}>{hint}</Text> : null}
       {note ? <Text style={styles.note}>{note}</Text> : null}
     </View>
@@ -79,6 +95,10 @@ const styles = StyleSheet.create({
     // scaleX の原点を左端にする（既定は中央なので両側から伸びてしまう）
     transformOrigin: 'left',
   },
+  // 目印は白い縦線。塗りの上でも地の上でも見える
+  marker: { position: 'absolute', top: 0, bottom: 0, width: 2, backgroundColor: colors.card },
+  markerLabel: { ...type.tiny, textAlign: 'center' },
+  markerPassed: { color: colors.accentStrong, fontWeight: '700' },
   hint: { ...type.small, textAlign: 'center' },
   note: { ...type.tiny, textAlign: 'center' },
 });

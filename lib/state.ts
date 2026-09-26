@@ -79,31 +79,63 @@ export function stageScore(logs: Logs, todayKey: string, byLabel: Map<string, Se
   return { score: 0, loggedDays: 0, usedToday: false };
 }
 
-/**
- * 上がる閾値 / 下がる閾値。ヒステリシスは全段階で 1.5g（DESIGN §2）。
- *
- * 配分は摂取基準の2段構えに合わせてある（企画メモ 第2章: 目標量18g以上・理想25g。
- * 実際の摂取中央値は17.3g）。
- *
- *   段階2( 4g) 記録が始まった   / 段階3( 9g) 中央値17.3gの半分を超えた
- *   段階4(18g) **目標量に到達**  / 段階5(25g) **理想値に到達**
- *
- * 段階4と5に意味のある数字を置いているのが要点。「目標に届いた」が見た目に出て、
- * その上に理想値ぶんの伸びしろが残る。
- */
-const STAGE_UP: Record<Exclude<Stage, 1>, number> = { 2: 4.0, 3: 9.0, 4: 18.0, 5: 25.0 };
-const STAGE_DOWN: Record<Exclude<Stage, 1>, number> = { 2: 2.5, 3: 7.5, 4: 16.5, 5: 23.5 };
+/** ヒステリシスの幅。全段階で共通（DESIGN §2） */
+export const STAGE_HYSTERESIS_G = 1.5;
 
-/** テストとドキュメント生成のために公開する。画面からは resolveStage 経由で使う */
-export const STAGE_THRESHOLDS = { up: STAGE_UP, down: STAGE_DOWN } as const;
+/**
+ * 段階5の上限(g)。**7日平均でこれ以上を要求しない。**
+ *
+ * 根拠: プリセットだけで組んだ現実的な1日の上限が 32.2g（9タップ・lib/state.test.ts で固定）。
+ * 目標30gに「目標+7g=37g」を当てると最上段が到達不能になり、上限のある質の軸（DESIGN §3）が
+ * 死んだ飾りになるため、ここで止める。
+ */
+export const STAGE_CEILING_G = 32;
+
+/**
+ * 目標総量から段階の閾値を作る（DESIGN §2）。
+ *
+ * 段階を絶対値で持たず**目標に対する位置**で決めるのは、目標値を変えられるようにしたため。
+ * 目標だけ上げて段階が絶対値のままだと、「目標達成＝最上段」になって伸びしろが消える。
+ *
+ *   段階2 = 目標の22%  記録が始まった
+ *   段階3 = 目標の50%  半分まで来た
+ *   段階4 = **目標そのもの**（ここが「届いた」の位置）
+ *   段階5 = 目標 +7g   目標を大きく超えて続いている（ただし上限 CEILING_G）
+ *
+ * 目標18gを入れると 4 / 9 / 18 / 25 になる（＝摂取基準の目標量18gと理想値25gの2段構え。
+ * 企画メモ 第2章）。この一致が式の妥当性の根拠なので、係数を変えるときはそこを崩さないこと。
+ * 0.5g単位に丸めるのは、閾値が 5.72g のような読めない数字になるのを避けるため。
+ */
+export function stageThresholds(targetTotal: number): {
+  up: Record<Exclude<Stage, 1>, number>;
+  down: Record<Exclude<Stage, 1>, number>;
+} {
+  const half = (v: number) => Math.round(v * 2) / 2;
+  const up = {
+    2: half(targetTotal * 0.22),
+    3: half(targetTotal * 0.5),
+    4: half(targetTotal),
+    5: Math.min(half(targetTotal + 7), STAGE_CEILING_G),
+  } as Record<Exclude<Stage, 1>, number>;
+  const down = {
+    2: up[2] - STAGE_HYSTERESIS_G,
+    3: up[3] - STAGE_HYSTERESIS_G,
+    4: up[4] - STAGE_HYSTERESIS_G,
+    5: up[5] - STAGE_HYSTERESIS_G,
+  } as Record<Exclude<Stage, 1>, number>;
+  return { up, down };
+}
 
 /**
  * ヒステリシス付きの段階解決。前回の段階を必ず渡す（履歴依存＝これが本体）。
  *
- * 12.0g を行き来しても段階が毎日変わらない。かつ下がる側の閾値を低くしてあるので
+ * 目標付近を行き来しても段階が毎日変わらない。かつ下がる側の閾値を低くしてあるので
  * 降格しにくい方向に偏る（罰を弱くするための非対称設計）。
+ *
+ * @param targetTotal 1日の目標総量。段階の閾値はここから作る
  */
-export function resolveStage(score: number, prev: Stage = 1): Stage {
+export function resolveStage(score: number, prev: Stage = 1, targetTotal = 18): Stage {
+  const { up: STAGE_UP, down: STAGE_DOWN } = stageThresholds(targetTotal);
   let stage: Stage = prev;
   while (stage < 5 && score >= STAGE_UP[(stage + 1) as Exclude<Stage, 1>]) {
     stage = (stage + 1) as Stage;
@@ -201,13 +233,15 @@ export type GutState = {
 /**
  * @param estimate 初回診断の推定総量。記録3日未満のあいだ、段階の駆動にこれを使う
  *   （記録0日でキャラが必ず段階1から始まると、診断に答えた意味が画面に出ない・DESIGN §1-3）
+ * @param targetTotal 1日の目標総量。段階の閾値がこれに連動する
  */
 export function computeGutState(
   logs: Logs,
   todayKey: string,
   servings: Serving[],
   prevStage: Stage = 1,
-  estimate: number | null = null
+  estimate: number | null = null,
+  targetTotal = 18
 ): GutState {
   const byLabel = indexServings(servings);
   const measured = stageScore(logs, todayKey, byLabel);
@@ -220,7 +254,7 @@ export function computeGutState(
   const logged = totalLoggedDays(logs);
   return {
     today: dayTotals(logs, todayKey, byLabel),
-    stage: resolveStage(score.score, prevStage),
+    stage: resolveStage(score.score, prevStage, targetTotal),
     stageScore: score.score,
     stageLoggedDays: score.loggedDays,
     flora,

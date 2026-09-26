@@ -1,17 +1,20 @@
 /**
  * 画面に何が出るかを端末なしで確かめるドライラン。
- *   npx tsx scripts/dryrun.ts
+ *   npx tsx scripts/dryrun.ts          # 既定の目標(25g)
+ *   npx tsx scripts/dryrun.ts 18       # 目標を変えて確認
  *
  * ホーム画面が読む値（段階・メーターの文言・今日の提案）を、
  * 代表的な4つの状況について実際のロジックで計算して表示する。
  * UIのレイアウトは確認できないが、**文言と数字の出方**はこれで検証できる。
  */
 import { pickCoach } from '../lib/coach';
-import { CAUTIONS, COACH, SERVINGS, SWAPS, TARGETS } from '../lib/dataset';
+import { CAUTIONS, COACH, GUIDELINE_TOTAL, SERVINGS, SWAPS, targetsFor } from '../lib/dataset';
 import { fillRatio, progressWord, remainHint } from '../lib/format';
 import { computeGutState, dateKey, shiftDays } from '../lib/state';
 import type { Logs, Stage } from '../lib/types';
 
+/** 第1引数で目標総量を変えられる（設定画面で選べる値と同じ） */
+const TARGETS = targetsFor(Number(process.argv[2]) || null);
 const TODAY = dateKey();
 const day = (n: number) => shiftDays(TODAY, -n);
 
@@ -24,6 +27,8 @@ const logs = (entries: Record<string, string[]>): Logs =>
   );
 
 const ACHIEVED = ['パスタ(ゆで)', 'もち麦ごはん', '納豆', 'ごぼう(ゆで)', 'ブロッコリー', '干し柿'];
+/** 豆と乾物で量を積んだ日。総量39.5g だが水溶性の割合は21%（1:3.8） */
+const SKEWED = ['いんげん豆(ゆで)', 'おから', '干し柿', 'ごぼう(ゆで)', 'ブロッコリー', 'もち麦ごはん', '納豆', 'ひよこ豆(ゆで)'];
 
 const scenarios: { name: string; logs: Logs; estimate?: number | null; prevStage?: Stage }[] = [
   {
@@ -52,7 +57,7 @@ const scenarios: { name: string; logs: Logs; estimate?: number | null; prevStage
     prevStage: 4,
   },
   {
-    name: '④ 目標18gに到達（段階4）。理想25gまでが段階5の伸びしろ',
+    name: '④ もち麦ごはん3杯を続けている人（1日18.9g）',
     logs: logs({
       [day(1)]: ['もち麦ごはん', 'もち麦ごはん', 'もち麦ごはん'],
       [day(2)]: ['もち麦ごはん', 'もち麦ごはん', 'もち麦ごはん'],
@@ -62,14 +67,27 @@ const scenarios: { name: string; logs: Logs; estimate?: number | null; prevStage
     prevStage: 4,
   },
   {
-    name: '⑤ 5日ぶりに戻ってきた日',
+    name: '⑤ 量は足りているが不溶性に偏った日（1:3.8）',
+    logs: logs({
+      [day(1)]: SKEWED,
+      [day(2)]: SKEWED,
+      [day(3)]: SKEWED,
+      [TODAY]: SKEWED,
+    }),
+    prevStage: 4,
+  },
+  {
+    name: '⑥ 5日ぶりに戻ってきた日',
     logs: logs({ [day(5)]: ['もち麦ごはん'], [day(6)]: ['納豆'], [day(7)]: ['もち麦ごはん'] }),
     prevStage: 3,
   },
 ];
 
+console.log(`目標: 総量${TARGETS.total}g / 菌のごはん${TARGETS.soluble}g / おそうじ${TARGETS.insoluble}g` +
+  (TARGETS.total > GUIDELINE_TOTAL ? `（公的な目安${GUIDELINE_TOTAL}gより高い設定）` : ''));
+
 for (const sc of scenarios) {
-  const gut = computeGutState(sc.logs, TODAY, SERVINGS, sc.prevStage ?? 1, sc.estimate ?? null);
+  const gut = computeGutState(sc.logs, TODAY, SERVINGS, sc.prevStage ?? 1, sc.estimate ?? null, TARGETS.total);
   const hint = remainHint(TARGETS.total - gut.today.total, SERVINGS, { cautions: CAUTIONS });
   const coach = pickCoach({
     logs: sc.logs,
@@ -90,7 +108,11 @@ for (const sc of scenarios) {
   if (gut.provisional) console.log(`            まだ見極め中です（3日記録すると実測に切り替わります）`);
   console.log(`提案        ${coach ? `[${coach.trigger}] ${coach.item.message}` : '（なし）'}`);
   if (coach) console.log(`            ${coach.item.reason}  《${coach.evidence}》`);
-  console.log(`内部値      総量${gut.today.total.toFixed(2)}g / 菌のごはん${gut.today.soluble.toFixed(2)}g / おそうじ${gut.today.insoluble.toFixed(2)}g`);
+  const share = gut.today.total > 0 ? (gut.today.soluble / gut.today.total) * 100 : 0;
+  console.log(
+    `内部値      総量${gut.today.total.toFixed(2)}g / 菌のごはん${gut.today.soluble.toFixed(2)}g / ` +
+      `おそうじ${gut.today.insoluble.toFixed(2)}g（水溶の割合 ${share.toFixed(0)}%・理想33%）`
+  );
 }
 
 function bar(ratio: number): string {

@@ -19,7 +19,7 @@ import { useStore } from '../lib/store';
 import { colors, elevation, hit, radius, space, type } from '../lib/theme';
 
 export default function Onboarding() {
-  const { updateProfile } = useStore();
+  const { updateProfile, targets } = useStore();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const questions = DIAGNOSIS.questions;
@@ -72,7 +72,7 @@ export default function Onboarding() {
 
   if (result) {
     // 推定値から決まる段階のキャラを、結果としてその場で見せる
-    const stage = resolveStage(result.estTotal, 1);
+    const stage = resolveStage(result.estTotal, 1, targets.total);
     return (
       <ScrollView
         style={styles.screen}

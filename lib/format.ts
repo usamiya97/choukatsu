@@ -112,20 +112,7 @@ export function fiberOf(s: Serving, count: number): number {
   return s.total * count;
 }
 
-/**
- * 2軸のバランス評価（DESIGN §4）。達成日にも次の一手を残すための判定。
- * v1では数値2本立てを表示しないが、コーチのトリガー選択には使う。
- */
-export type Balance = 'both' | 'soluble-low' | 'insoluble-low' | 'none';
-
-export function balanceOf(t: Totals, targets: { soluble: number; insoluble: number }): Balance {
-  const sol = t.soluble >= targets.soluble;
-  const insol = t.insoluble >= targets.insoluble;
-  if (sol && insol) return 'both';
-  if (!sol && insol) return 'soluble-low';
-  if (sol && !insol) return 'insoluble-low';
-  return 'none';
-}
+/** 2軸の目標とバランス判定は lib/targets.ts にある（比率の意味を1か所に集めるため） */
 
 /** v2の見た目の変調パラメータ。GutCharacter に渡す */
 export function modulation(t: Totals, targets: { soluble: number; insoluble: number }) {

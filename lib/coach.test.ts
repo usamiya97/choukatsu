@@ -127,12 +127,41 @@ test('同じ日なら何度呼んでも同じ提案（1日1つを守る）', () 
   assert.equal(dailyIndex(TODAY, 8), dailyIndex(TODAY, 8));
 });
 
-test('昨日と同じ提案は避ける', () => {
+test('直近に出した提案は避ける（1日おきに同じ文が出ないこと）', () => {
   const logs = baseline();
   const first = pickCoach(ctx(logs));
   assert.ok(first);
-  const second = pickCoach(ctx(logs, { lastShown: { id: first.item.id, date: day(1) } }));
+  const history = [{ id: first.item.id, date: day(1) }];
+  const second = pickCoach(ctx(logs, { recentShown: history }));
   assert.notEqual(second?.item.id, first.item.id);
+  // 3日前に出したものもまだ避ける
+  const third = pickCoach(ctx(logs, { recentShown: [{ id: first.item.id, date: day(3) }] }));
+  assert.notEqual(third?.item.id, first.item.id);
+});
+
+test('同じ日に何度呼んでも、すでに今日出した提案はそのまま返る', () => {
+  const logs = baseline();
+  const first = pickCoach(ctx(logs));
+  assert.ok(first);
+  const again = pickCoach(ctx(logs, { recentShown: [{ id: first.item.id, date: TODAY }] }));
+  assert.equal(again?.item.id, first.item.id);
+});
+
+test('カタログが1件しかないトリガーに居続けても、同じ文を繰り返さない', () => {
+  // 毎日記録しているが目標に届かない人（目標を上げるとこの状態が普通になる）
+  const logs = logsWith({
+    [day(1)]: ['レタス'],
+    [day(2)]: ['レタス'],
+    [day(3)]: ['レタス'],
+    [TODAY]: ['レタス'],
+  });
+  assert.equal(resolveTrigger(ctx(logs)), '連続未達3日');
+  const only = pickCoach(ctx(logs));
+  assert.equal(only?.item.id, 'C036');
+  // 昨日それを出していたら、不足の軸のプールに逃げる
+  const next = pickCoach(ctx(logs, { recentShown: [{ id: 'C036', date: day(1) }] }));
+  assert.notEqual(next?.item.id, 'C036');
+  assert.ok(next, '代わりの提案が無い');
 });
 
 test('今日すでに食べたものは勧めない', () => {

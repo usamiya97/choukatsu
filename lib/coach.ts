@@ -7,9 +7,18 @@
  *  - ユーザーが「無理」と答えた食品(q10)と、軸ごとの禁止リストは必ず落とす
  *  - LLMは使わない。カタログから選ぶだけ（数値はデータ由来のまま）
  */
-import { balanceOf, bannedLabels } from './format';
+import { bannedLabels } from './format';
+import { balanceOf } from './targets';
 import type { Evidence } from './format';
-import { daysSinceLastLog, dayTotals, indexServings, recentMissStreak, totalLoggedDays, uniqueLabels } from './state';
+import {
+  daysBetween,
+  daysSinceLastLog,
+  dayTotals,
+  indexServings,
+  recentMissStreak,
+  totalLoggedDays,
+  uniqueLabels,
+} from './state';
 import type { Caution, CoachItem, CoachTrigger, Logs, Serving, Swap, Targets, Totals } from './types';
 
 export type CoachContext = {
@@ -22,9 +31,15 @@ export type CoachContext = {
   targets: Targets;
   /** 初回診断 q10 の除外。永続。提案生成時に必ずフィルタする */
   excludedFoods?: string[];
-  /** 前回出した提案。同じものを2日続けて出さないため */
-  lastShown?: { id: string; date: string } | null;
+  /**
+   * 直近に出した提案の履歴。同じ文を短い間隔で繰り返さないために使う。
+   * 今日ぶんが入っていてもよい（同じ日は同じ提案を返す必要があるので、今日ぶんは避けない）。
+   */
+  recentShown?: { id: string; date: string }[];
 };
+
+/** 何日以内に出した提案を避けるか。短すぎると1日おきに同じ文が出る */
+const AVOID_DAYS = 3;
 
 /**
  * どのトリガーを使うか。上から順に見る。
@@ -91,9 +106,41 @@ export type CoachSuggestion = {
 
 /**
  * 今日の提案を1つ返す。返り値は日付が変わるまで安定する。
+ *
+ * カタログが1件しかないトリガー（連続未達3日・復帰など）に入り続けると、
+ * 毎日同じ文が出て読まれなくなる。**目標値を上げるとこれが起きやすい**
+ * （届かない日が続く＝連続未達に留まる）ので、繰り返しになる場合は
+ * 不足の軸のプール（14件+17件）に逃がす。
  */
 export function pickCoach(ctx: CoachContext): CoachSuggestion | null {
-  const trigger = resolveTrigger(ctx);
+  const primary = resolveTrigger(ctx);
+  const picked = pickFor(ctx, primary);
+  if (picked && !isRepeat(ctx, picked)) return picked;
+
+  // 同じ提案の繰り返しになるなら、不足の軸から出す（未達の日に「達成」の文言は出さない）
+  const byLabel = indexServings(ctx.servings);
+  const today = dayTotals(ctx.logs, ctx.todayKey, byLabel);
+  const fallback = shortfallTrigger(today, ctx.targets);
+  if (fallback !== primary) {
+    const alt = pickFor(ctx, fallback);
+    if (alt && !isRepeat(ctx, alt)) return alt;
+  }
+  return picked;
+}
+
+/** 直近 AVOID_DAYS 日に出した提案のid。今日ぶんは含めない（同じ日は同じ提案を返すため） */
+function recentlyShown(ctx: CoachContext): Set<string> {
+  const ids = (ctx.recentShown ?? [])
+    .filter((r) => r.date !== ctx.todayKey && daysBetween(r.date, ctx.todayKey) <= AVOID_DAYS)
+    .map((r) => r.id);
+  return new Set(ids);
+}
+
+function isRepeat(ctx: CoachContext, picked: CoachSuggestion): boolean {
+  return recentlyShown(ctx).has(picked.item.id);
+}
+
+function pickFor(ctx: CoachContext, trigger: CoachTrigger): CoachSuggestion | null {
   const axis = AXIS_OF_TRIGGER[trigger] ?? 'total';
   const banned = bannedLabels(ctx.cautions, axis);
   const excluded = new Set(ctx.excludedFoods ?? []);
@@ -111,34 +158,43 @@ export function pickCoach(ctx: CoachContext): CoachSuggestion | null {
   });
   if (!pool.length) return null;
 
-  const best = Math.min(...pool.map((c) => c.priority));
-  let candidates = pool.filter((c) => c.priority === best);
-
-  // 今日すでに食べたものを勧めない（「もう食べた」と言われる提案は信頼を落とす）
-  const notEaten = candidates.filter((c) => {
-    const label = c.targetFood ? resolveLabel(c.targetFood, byLabel, ctx.servings) : null;
-    return !label || !eatenToday.has(label);
-  });
-  if (notEaten.length) candidates = notEaten;
-
-  // 置き換え提案は、置き換え元を実際に記録したことがある人にこそ効く
   const swapOf = (c: CoachItem) => findSwap(c, ctx.swaps, byLabel, ctx.servings);
-  const relevant = candidates.filter((c) => {
-    const s = swapOf(c);
-    return s ? known.has(s.before) : false;
-  });
-  if (relevant.length) candidates = relevant;
+  const recent = recentlyShown(ctx);
 
-  // 昨日と同じものは避ける（毎日同じ提案だと読まれなくなる）
-  const lastId = ctx.lastShown?.id;
-  if (lastId && candidates.length > 1) {
-    const others = candidates.filter((c) => c.id !== lastId);
-    if (others.length) candidates = others;
+  /** 優先度の同じグループの中での絞り込み */
+  const narrow = (group: CoachItem[]): CoachItem[] => {
+    // 今日すでに食べたものを勧めない（「もう食べた」と言われる提案は信頼を落とす）
+    const notEaten = group.filter((c) => {
+      const label = c.targetFood ? resolveLabel(c.targetFood, byLabel, ctx.servings) : null;
+      return !label || !eatenToday.has(label);
+    });
+    if (notEaten.length) group = notEaten;
+    // 置き換え提案は、置き換え元を実際に記録したことがある人にこそ効く
+    const relevant = group.filter((c) => {
+      const s = swapOf(c);
+      return s ? known.has(s.before) : false;
+    });
+    return relevant.length ? relevant : group;
+  };
+
+  // 優先度の高いグループから見て、**直近に出していないものがある層を使う**。
+  // 上位が枯れたら下位に降りる（降りずに我慢すると同じ文が周期的に出る）。
+  const tiers = [...new Set(pool.map((c) => c.priority))].sort((a, b) => a - b);
+  let candidates: CoachItem[] = [];
+  for (const tier of tiers) {
+    const group = narrow(pool.filter((c) => c.priority === tier));
+    if (!candidates.length) candidates = group; // どの層も最近出していた場合の保険
+    const fresh = group.filter((c) => !recent.has(c.id));
+    if (fresh.length) {
+      candidates = fresh;
+      break;
+    }
   }
 
   const item = candidates[dailyIndex(ctx.todayKey, candidates.length)];
   return { item, trigger, evidence: evidenceOf(item), swap: swapOf(item) };
 }
+
 
 /** 根拠バッジ（DESIGN §5-3）。数値の出どころで決める。断定しない語を選ぶ */
 export function evidenceOf(item: CoachItem): Evidence {

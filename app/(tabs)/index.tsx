@@ -13,7 +13,7 @@ import CoachCard from '../../components/CoachCard';
 import QuantitySheet from '../../components/QuantitySheet';
 import Toast from '../../components/Toast';
 import { ChevronRightIcon, PlusIcon } from '../../components/Icons';
-import { CAUTIONS, SERVINGS, TARGETS, findServing } from '../../lib/dataset';
+import { CAUTIONS, GUIDELINE_TOTAL, SERVINGS, findServing } from '../../lib/dataset';
 import { fillRatio, formatCount, progressWord, remainHint, servingLabel } from '../../lib/format';
 import { haptics } from '../../lib/motion';
 import { useStore } from '../../lib/store';
@@ -30,14 +30,14 @@ const STAGE_LOOK = {
 } as const;
 
 export default function HomeScreen() {
-  const { gut, coach, profile, todayEntries, removeEntry, updateEntryCount } = useStore();
+  const { gut, coach, profile, targets, todayEntries, removeEntry, updateEntryCount } = useStore();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [toast, setToast] = useState<string | null>(null);
   // 今日の記録を押したときに開く、量の直しシート
   const [editing, setEditing] = useState<LogEntry | null>(null);
 
-  const remaining = TARGETS.total - gut.today.total;
+  const remaining = targets.total - gut.today.total;
   const hint = remainHint(remaining, SERVINGS, {
     cautions: CAUTIONS,
     excluded: profile.excludedFoods,
@@ -45,7 +45,7 @@ export default function HomeScreen() {
 
   // 目標に届いた瞬間だけ、その日1回だけ触覚で返す（毎回震わせない）
   const achievedDay = useRef<string | null>(null);
-  const achieved = gut.today.total >= TARGETS.total;
+  const achieved = gut.today.total >= targets.total;
   useEffect(() => {
     if (!achieved) return;
     const key = new Date().toDateString();
@@ -84,10 +84,20 @@ export default function HomeScreen() {
         </View>
 
         <Meter
-          fill={fillRatio(gut.today.total, TARGETS.total)}
-          headline={progressWord(gut.today.total, TARGETS.total)}
+          fill={fillRatio(gut.today.total, targets.total)}
+          headline={progressWord(gut.today.total, targets.total)}
           hint={hint?.text ?? null}
           note={gut.provisional ? 'まだ見極め中です（3日記録すると、あなたの実測に切り替わります）' : null}
+          // 目標を公的な目安より高くしているときは、手前に越えられる線を置く
+          marker={
+            targets.total > GUIDELINE_TOTAL
+              ? {
+                  ratio: GUIDELINE_TOTAL / targets.total,
+                  label: `目安${GUIDELINE_TOTAL}g`,
+                  passed: gut.today.total >= GUIDELINE_TOTAL,
+                }
+              : null
+          }
         />
 
         {coach ? (

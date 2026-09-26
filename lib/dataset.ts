@@ -10,6 +10,7 @@ import cautionsJson from '../data/generated/cautions.json';
 import coachJson from '../data/generated/coach.json';
 import targetsJson from '../data/targets.json';
 import diagnosisJson from '../data/diagnosis.json';
+import { targetsOf } from './targets';
 import type { Caution, CoachItem, Food, Serving, Swap, Targets } from './types';
 
 export const SERVINGS = servingsJson as unknown as Serving[];
@@ -17,11 +18,28 @@ export const SWAPS = swapsJson as unknown as Swap[];
 export const CAUTIONS = cautionsJson as unknown as Caution[];
 export const COACH = coachJson as unknown as CoachItem[];
 
-export const TARGETS: Targets = {
-  total: targetsJson.daily_targets.total_g,
-  soluble: targetsJson.daily_targets.soluble_g,
-  insoluble: targetsJson.daily_targets.insoluble_g,
-};
+/**
+ * 目標値。総量はユーザーが選べる（既定25g）。
+ * 2軸は総量から理想比1:2で出す（水溶性は上限8g・lib/targets.ts axisTargets）。
+ */
+export const DEFAULT_TARGET_TOTAL = targetsJson.app_target.default_total_g;
+
+export const TARGET_OPTIONS: { total: number; label: string }[] = targetsJson.app_target.options_g.map(
+  (total) => ({
+    total,
+    label: (targetsJson.app_target.labels as Record<string, string>)[String(total)] ?? `${total}g`,
+  })
+);
+
+export function targetsFor(total: number | null | undefined): Targets {
+  return targetsOf(total ?? DEFAULT_TARGET_TOTAL);
+}
+
+/** 既定の目標。目標を変えられない画面（テスト・スクリプト）はこれを使う */
+export const TARGETS: Targets = targetsFor(DEFAULT_TARGET_TOTAL);
+
+/** 公的な目標量。設定画面で「18gは女性の目標量」と説明するために持っておく */
+export const GUIDELINE_TOTAL = targetsJson.daily_targets.total_g;
 
 export const DIAGNOSIS = diagnosisJson as DiagnosisFile;
 

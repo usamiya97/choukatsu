@@ -1,6 +1,7 @@
 # 腸活アプリ（v1・実装中）
 
 食物繊維だけに絞ったトラッカー。プリセット178品目の1タップ入力で、腸のキャラクターが育つ。
+1日の目標は既定25g（設定で18/21/25/30から選択可）。
 企画の背景は [腸活アプリ_企画メモ.md](腸活アプリ_企画メモ.md)、v1の仕様は [DESIGN.md](DESIGN.md)、
 進行は [TODO.md](TODO.md)。
 
@@ -11,7 +12,8 @@ npm install                # 初回。peer依存の衝突があるときは --le
 npm start                  # data/generated を作ってから Expo を起動する（prestart）
 npm test                   # ロジックのテスト（68件・端末不要）
 npm run typecheck          # tsc --noEmit
-npm run dryrun             # 画面に出る文言と数字を4シナリオぶん表示（端末不要）
+npm run dryrun             # 画面に出る文言と数字を5シナリオぶん表示（端末不要）
+npx tsx scripts/dryrun.ts 18   # 目標値を変えて検算（18/21/25/30）
 ```
 
 `npm run build:data` が `data/*.csv` → `data/generated/*.json` を生成する。
@@ -30,7 +32,7 @@ app/                     Expo Router
 
 components/              GutCharacter(静止SVG) / GutCharacterLive(動き) / Meter / CoachCard
                          ServingChip / QuantitySheet / QuantityStepper / Toast / TabIcon / Icons
-lib/                     state(状態モデル) coach(提案選択) format(表示) diagnosis(採点)
+lib/                     state(状態モデル) targets(目標と2軸の比) coach(提案選択) format(表示) diagnosis(採点)
                          dataset(生成JSONの入口) store(Context) storage(AsyncStorage)
                          theme(デザイントークン) motion(アニメ・触覚)
 scripts/build-data.mjs   CSV → JSON ＋ 相互参照の検証
@@ -45,6 +47,8 @@ data/                    出典データ。詳細は data/README.md
 |---|---|
 | 数値はデータから決定論的に出す。LLMに計算させない | `lib/state.ts` / `lib/coach.ts` |
 | 段階は7日平均・ヒステリシス1.5g。**今日は平均に入れない** | `lib/state.ts` `stageScore` / `resolveStage` |
+| 1日の目標は可変（既定25g）。段階の閾値も連動 | `lib/state.ts` `stageThresholds` / `lib/dataset.ts` `targetsFor` |
+| 2軸は総量から1:2（水溶性は上限8g）。偏りは割合で判定 | `lib/targets.ts` `axisTargets` / `balanceOf` |
 | 未記録日を0として数えない。`streak` を持たない | `lib/state.ts` |
 | 提案は1日1つ。同じ日は何度開いても同じもの | `lib/coach.ts` `dailyIndex` |
 | 苦手（診断q10）と軸ごとの禁止リストを必ず外す | `lib/coach.ts` / `lib/format.ts` `bannedLabels` |

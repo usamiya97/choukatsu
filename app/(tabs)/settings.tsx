@@ -10,13 +10,15 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CheckIcon, ChevronRightIcon } from '../../components/Icons';
-import { DIAGNOSIS, findServing, labelsForName } from '../../lib/dataset';
+import { DEFAULT_TARGET_TOTAL, DIAGNOSIS, GUIDELINE_TOTAL, TARGET_OPTIONS, findServing, labelsForName } from '../../lib/dataset';
 import { ATTRIBUTION } from '../../lib/format';
 import { useStore } from '../../lib/store';
+import { stageThresholds } from '../../lib/state';
+import { SOLUBLE_CAP_G } from '../../lib/targets';
 import { colors, elevation, hit, radius, space, type } from '../../lib/theme';
 
 export default function SettingsScreen() {
-  const { profile, updateProfile, resetAll, gut } = useStore();
+  const { profile, updateProfile, resetAll, gut, targets } = useStore();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const q10 = DIAGNOSIS.questions.find((q) => q.id === 'q10');
@@ -43,6 +45,46 @@ export default function SettingsScreen() {
           {gut.useMeasured
             ? 'キャラクターはあなたの実測（直近7日）で育っています'
             : '3日記録すると、診断の推定値からあなたの実測に切り替わります'}
+        </Text>
+      </Card>
+
+      <Card
+        title="1日の目標"
+        lead={`いまは ${targets.total}g。キャラクターが育つ目安もこれに合わせて動きます`}
+      >
+        {TARGET_OPTIONS.map((o) => {
+          const on = targets.total === o.total;
+          const { up } = stageThresholds(o.total);
+          return (
+            <Pressable
+              key={o.total}
+              style={({ pressed }) => [styles.toggle, on && styles.toggleOn, pressed && styles.togglePressed]}
+              onPress={() =>
+                updateProfile({ targetTotal: o.total === DEFAULT_TARGET_TOTAL ? null : o.total })
+              }
+              accessibilityRole="radio"
+              accessibilityState={{ selected: on, checked: on }}
+              accessibilityLabel={`1日の目標を ${o.label} にする。キャラクターは7日平均${up[4]}gで色つやが出て、${up[5]}gでいちばん元気になります`}
+              android_ripple={{ color: colors.tapPressed }}
+            >
+              <View style={styles.toggleTexts}>
+                <Text style={[styles.toggleText, on && styles.toggleTextOn]}>{o.label}</Text>
+                <Text style={[styles.toggleSub, on && styles.toggleTextOn]}>
+                  キャラクターの目安 {up[4]}g → {up[5]}g
+                </Text>
+              </View>
+              {on ? <CheckIcon color="#FFFFFF" /> : null}
+            </Pressable>
+          );
+        })}
+        <Text style={styles.small}>
+          公的な目安は1日 {GUIDELINE_TOTAL}g以上（女性）/ 21g以上（男性）で、25gは研究で理想とされている量です。
+          高い目標から始めて、続かないと感じたら下げてかまいません。
+        </Text>
+        <Text style={styles.small}>
+          ※「菌のごはん」と「おそうじ」の目安は、総量から 1:2 で出します
+          （いまは {targets.soluble}g / {targets.insoluble}g）。この比率が整っているときがいちばん働きやすいと
+          言われている配分です。菌のごはん側は {SOLUBLE_CAP_G}g で打ち止めにしています（毎日狙える範囲に留めるため）。
         </Text>
       </Card>
 
@@ -159,7 +201,9 @@ const styles = StyleSheet.create({
   },
   toggleOn: { backgroundColor: colors.accentStrong },
   togglePressed: { opacity: 0.9 },
-  toggleText: { ...type.body, flex: 1 },
+  toggleTexts: { flex: 1, gap: 2 },
+  toggleText: { ...type.body },
+  toggleSub: { ...type.tiny },
   toggleTextOn: { color: '#FFFFFF', fontWeight: '700' },
   toggleMark: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
   toggleMarkText: { ...type.tiny, color: '#FFFFFF', fontWeight: '700' },

@@ -6,7 +6,6 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import {
-  balanceOf,
   bannedLabels,
   fiberOf,
   fillRatio,
@@ -81,14 +80,6 @@ test('表示名は内部名ではない（(ゆで)などを出さない）', () 
   for (const s of servings) {
     assert.ok(!/[（(](ゆで|素干し|白米に混ぜる)[)）]/.test(servingLabel(s)), servingLabel(s));
   }
-});
-
-test('2軸のバランス判定', () => {
-  const targets = { soluble: 6, insoluble: 12 };
-  assert.equal(balanceOf({ total: 20, soluble: 7, insoluble: 13 }, targets), 'both');
-  assert.equal(balanceOf({ total: 18, soluble: 4, insoluble: 14 }, targets), 'soluble-low');
-  assert.equal(balanceOf({ total: 18, soluble: 8, insoluble: 10 }, targets), 'insoluble-low');
-  assert.equal(balanceOf({ total: 5, soluble: 1, insoluble: 4 }, targets), 'none');
 });
 
 test('見た目の変調パラメータは0..1.2に収まる', () => {
