@@ -17,6 +17,7 @@ import {
   recentMissStreak,
   resolveStage,
   shiftDays,
+  STAGE_THRESHOLDS,
   stageScore,
   weekLogDays,
 } from './state.ts';
@@ -80,37 +81,64 @@ test('記録初日だけは今日を使う（何も動かないと記録した�
 });
 
 test('ヒステリシス: 上がる閾値と下がる閾値が1.5gずれている', () => {
-  // 上がる: 4/8/12/16
+  // 上がる: 4/9/18/25（段階4=目標量18g・段階5=理想値25g）
   assert.equal(resolveStage(3.9, 1), 1);
   assert.equal(resolveStage(4.0, 1), 2);
-  assert.equal(resolveStage(8.0, 1), 3);
-  assert.equal(resolveStage(12.0, 1), 4);
-  assert.equal(resolveStage(16.0, 1), 5);
-  // 下がる: 2.5/6.5/10.5/14.5。閾値を割るまで維持する
-  assert.equal(resolveStage(15.0, 5), 5);
-  assert.equal(resolveStage(14.4, 5), 4);
-  assert.equal(resolveStage(11.0, 4), 4);
-  assert.equal(resolveStage(10.4, 4), 3);
-  assert.equal(resolveStage(7.0, 3), 3);
-  assert.equal(resolveStage(6.4, 3), 2);
+  assert.equal(resolveStage(8.9, 1), 2);
+  assert.equal(resolveStage(9.0, 1), 3);
+  assert.equal(resolveStage(17.9, 1), 3, '目標18gに1歩届かない間は段階3');
+  assert.equal(resolveStage(18.0, 1), 4, '目標量に到達したら段階4');
+  assert.equal(resolveStage(24.9, 1), 4);
+  assert.equal(resolveStage(25.0, 1), 5, '理想値に到達したら段階5');
+  // 下がる: 2.5/7.5/16.5/23.5。閾値を割るまで維持する
+  assert.equal(resolveStage(24.0, 5), 5);
+  assert.equal(resolveStage(23.4, 5), 4);
+  assert.equal(resolveStage(17.0, 4), 4);
+  assert.equal(resolveStage(16.4, 4), 3);
+  assert.equal(resolveStage(8.0, 3), 3);
+  assert.equal(resolveStage(7.4, 3), 2);
   assert.equal(resolveStage(3.0, 2), 2);
   assert.equal(resolveStage(2.4, 2), 1);
 });
 
-test('境界を往復してもちらつかない（12.0 ⇄ 11.0 を10往復）', () => {
+test('閾値の表そのものを縛る（片方だけ動かしてヒステリシスが壊れるのを防ぐ）', () => {
+  const { up, down } = STAGE_THRESHOLDS;
+  assert.equal(up[4], 18.0, '段階4は目標量18g');
+  assert.equal(up[5], 25.0, '段階5は理想値25g');
+  for (const stage of [2, 3, 4, 5] as const) {
+    assert.equal(
+      Number((up[stage] - down[stage]).toFixed(2)),
+      1.5,
+      `段階${stage}のヒステリシスが1.5gでない`
+    );
+  }
+  // 上がる閾値は単調増加。下がる閾値が1つ下の上がる閾値を下回らない（段階飛びの防止）
+  for (const stage of [3, 4, 5] as const) {
+    assert.ok(up[stage] > up[(stage - 1) as 2 | 3 | 4], `段階${stage}の閾値が単調でない`);
+  }
+});
+
+test('目標到達で段階4に上がり、理想値まで段階5の伸びしろが残る', () => {
+  // 目標量18gに届いた時点で見た目が変わる。ただし最上段はまだ先
+  assert.equal(resolveStage(18.0, 3), 4);
+  assert.equal(resolveStage(21.0, 4), 4);
+  assert.equal(resolveStage(25.0, 4), 5);
+});
+
+test('境界を往復してもちらつかない（18.0 ⇄ 17.0 を10往復）', () => {
   let stage: Stage = 3;
-  stage = resolveStage(12.0, stage);
+  stage = resolveStage(18.0, stage);
   assert.equal(stage, 4);
   for (let i = 0; i < 10; i++) {
-    stage = resolveStage(11.0, stage);
-    assert.equal(stage, 4, '11.0gでは降格しない');
-    stage = resolveStage(12.0, stage);
+    stage = resolveStage(17.0, stage);
+    assert.equal(stage, 4, '17.0gでは降格しない（下がる閾値は16.5g）');
+    stage = resolveStage(18.0, stage);
     assert.equal(stage, 4);
   }
 });
 
 test('大きく跳ねたら複数段いっぺんに上がる／下がる', () => {
-  assert.equal(resolveStage(18.0, 1), 5);
+  assert.equal(resolveStage(30.0, 1), 5);
   assert.equal(resolveStage(0.0, 5), 1);
 });
 
@@ -155,10 +183,10 @@ test('記録3日未満は診断の推定値で段階を動かし、3日で実測
   const provisional = computeGutState(twoDays, TODAY, servings, 1, 13.0);
   assert.equal(provisional.provisional, true);
   assert.equal(provisional.useMeasured, false);
-  assert.equal(provisional.stage, 4, '推定13gなら段階4から始まる');
+  assert.equal(provisional.stage, 3, '推定13gなら段階3から始まる（目標18gにはまだ届いていない）');
 
   const threeDays = logsWith({ [day(1)]: ['レタス'], [day(2)]: ['レタス'], [day(3)]: ['レタス'] });
-  const measured = computeGutState(threeDays, TODAY, servings, 4, 13.0);
+  const measured = computeGutState(threeDays, TODAY, servings, 3, 13.0);
   assert.equal(measured.provisional, false);
   assert.equal(measured.useMeasured, true);
   assert.ok(measured.stageScore < 1, '実測（レタスのみ）に切り替わる');
@@ -174,4 +202,37 @@ test('6タップで3指標すべて達成できる（データ層の到達性の
   assert.ok(t.total >= 18, `総量 ${t.total.toFixed(2)}g`);
   assert.ok(t.soluble >= 6, `菌のごはん ${t.soluble.toFixed(2)}g`);
   assert.ok(t.insoluble >= 12, `おそうじ ${t.insoluble.toFixed(2)}g`);
+});
+
+test('段階5(25g)はプリセットだけで届く（理論上だけの最上段にしない）', () => {
+  // 朝オートミール+豆乳 / 昼パスタ+ブロッコリー / 夜もち麦+納豆+ごぼう / 間食アーモンド+キウイ
+  const realisticDay = [
+    'オートミール',
+    '豆乳',
+    'パスタ(ゆで)',
+    'ブロッコリー',
+    'もち麦ごはん',
+    '納豆',
+    'ごぼう(ゆで)',
+    'アーモンド',
+    'キウイ',
+  ];
+  const logs = logsWith({ [TODAY]: realisticDay });
+  const t = dayTotals(logs, TODAY, byLabel);
+  assert.ok(t.total >= 25, `9タップで ${t.total.toFixed(1)}g（25g必要）`);
+
+  // その食べ方を7日続けたら段階5に届く
+  const week: Record<string, string[]> = {};
+  for (let i = 1; i <= 7; i++) week[day(i)] = realisticDay;
+  const state = computeGutState(logsWith(week), TODAY, servings, 4);
+  assert.equal(state.stage, 5, `7日平均 ${state.stageScore.toFixed(1)}g`);
+});
+
+test('目標18gを7日続けた人は段階4（段階5に伸びしろが残る）', () => {
+  // もち麦3杯=18.9g を7日続けた場合
+  const week: Record<string, string[]> = {};
+  for (let i = 1; i <= 7; i++) week[day(i)] = ['もち麦ごはん', 'もち麦ごはん', 'もち麦ごはん'];
+  const state = computeGutState(logsWith(week), TODAY, servings, 4);
+  assert.ok(state.stageScore >= 18, `7日平均 ${state.stageScore.toFixed(1)}g`);
+  assert.equal(state.stage, 4);
 });

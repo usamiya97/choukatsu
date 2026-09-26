@@ -79,9 +79,23 @@ export function stageScore(logs: Logs, todayKey: string, byLabel: Map<string, Se
   return { score: 0, loggedDays: 0, usedToday: false };
 }
 
-/** 上がる閾値 / 下がる閾値。1.5g ずらす（DESIGN §2） */
-const STAGE_UP: Record<Exclude<Stage, 1>, number> = { 2: 4.0, 3: 8.0, 4: 12.0, 5: 16.0 };
-const STAGE_DOWN: Record<Exclude<Stage, 1>, number> = { 2: 2.5, 3: 6.5, 4: 10.5, 5: 14.5 };
+/**
+ * 上がる閾値 / 下がる閾値。ヒステリシスは全段階で 1.5g（DESIGN §2）。
+ *
+ * 配分は摂取基準の2段構えに合わせてある（企画メモ 第2章: 目標量18g以上・理想25g。
+ * 実際の摂取中央値は17.3g）。
+ *
+ *   段階2( 4g) 記録が始まった   / 段階3( 9g) 中央値17.3gの半分を超えた
+ *   段階4(18g) **目標量に到達**  / 段階5(25g) **理想値に到達**
+ *
+ * 段階4と5に意味のある数字を置いているのが要点。「目標に届いた」が見た目に出て、
+ * その上に理想値ぶんの伸びしろが残る。
+ */
+const STAGE_UP: Record<Exclude<Stage, 1>, number> = { 2: 4.0, 3: 9.0, 4: 18.0, 5: 25.0 };
+const STAGE_DOWN: Record<Exclude<Stage, 1>, number> = { 2: 2.5, 3: 7.5, 4: 16.5, 5: 23.5 };
+
+/** テストとドキュメント生成のために公開する。画面からは resolveStage 経由で使う */
+export const STAGE_THRESHOLDS = { up: STAGE_UP, down: STAGE_DOWN } as const;
 
 /**
  * ヒステリシス付きの段階解決。前回の段階を必ず渡す（履歴依存＝これが本体）。

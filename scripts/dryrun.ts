@@ -52,7 +52,17 @@ const scenarios: { name: string; logs: Logs; estimate?: number | null; prevStage
     prevStage: 4,
   },
   {
-    name: '④ 5日ぶりに戻ってきた日',
+    name: '④ 目標18gに到達（段階4）。理想25gまでが段階5の伸びしろ',
+    logs: logs({
+      [day(1)]: ['もち麦ごはん', 'もち麦ごはん', 'もち麦ごはん'],
+      [day(2)]: ['もち麦ごはん', 'もち麦ごはん', 'もち麦ごはん'],
+      [day(3)]: ['もち麦ごはん', 'もち麦ごはん', 'もち麦ごはん'],
+      [TODAY]: ['もち麦ごはん', 'もち麦ごはん', 'もち麦ごはん'],
+    }),
+    prevStage: 4,
+  },
+  {
+    name: '⑤ 5日ぶりに戻ってきた日',
     logs: logs({ [day(5)]: ['もち麦ごはん'], [day(6)]: ['納豆'], [day(7)]: ['もち麦ごはん'] }),
     prevStage: 3,
   },
