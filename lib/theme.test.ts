@@ -6,7 +6,7 @@
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { colors, hit, space, type } from './theme.ts';
+import { axisColors, colors, hit, space, type } from './theme.ts';
 
 /** 相対輝度（WCAG の定義） */
 function luminance(hex: string): number {
@@ -20,6 +20,12 @@ function contrast(a: string, b: string): number {
   const l1 = luminance(a);
   const l2 = luminance(b);
   return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+}
+
+/** HSL の明度（%）。キャラの明度帯とUIの明度帯が重ならないことを見るために使う */
+function lightness(hex: string): number {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  return ((Math.max(r, g, b) + Math.min(r, g, b)) / 2) * 100;
 }
 
 const WHITE = '#FFFFFF';
@@ -54,6 +60,53 @@ test('accent は文字色に使わない前提（3:1 は超えるが 4.5:1 は�
   const ratio = contrast(colors.accent, colors.bg);
   assert.ok(ratio >= 3, `図形としては使える: ${ratio.toFixed(2)}`);
   assert.ok(ratio < 4.5, `文字には使えない: ${ratio.toFixed(2)}`);
+});
+
+test('押下色の白文字も 4.5:1 以上（accentStrong と同じ扱い）', () => {
+  assert.ok(contrast(WHITE, colors.accentPressed) >= 4.5, contrast(WHITE, colors.accentPressed).toFixed(2));
+});
+
+/**
+ * ピンク配色で唯一守らないといけない制約。
+ * キャラ本体は明度73〜81%のピンク（components/GutCharacter.tsx の BASE）。
+ * UIの面をそこまで暗くしたり、塗りをそこまで明るくしたりすると、
+ * キャラが背景やボタンに溶けて「段階」が読めなくなる。だから中間帯を空けておく。
+ */
+test('UIの色はキャラの明度帯(73〜81%)に入らない', () => {
+  for (const [name, c] of [
+    ['bg', colors.bg],
+    ['card', colors.card],
+    ['tap', colors.tap],
+    ['tapPressed', colors.tapPressed],
+    ['badge', colors.badge],
+    ['accentSoft', colors.accentSoft],
+  ] as const) {
+    assert.ok(lightness(c) >= 90, `面 ${name} は明るいまま: ${lightness(c).toFixed(1)}%`);
+  }
+  for (const [name, c] of [
+    ['accent', colors.accent],
+    ['accentStrong', colors.accentStrong],
+    ['accentPressed', colors.accentPressed],
+  ] as const) {
+    assert.ok(lightness(c) <= 62, `塗り ${name} は暗いまま: ${lightness(c).toFixed(1)}%`);
+  }
+});
+
+/**
+ * 2軸のバー（components/AxisBars.tsx）。
+ * 塗り同士は色相でしか区別できないので、**色だけで意味を持たせない**のが前提。
+ * ここで縛るのは「バー自体が見えること」と「名前を軸の色で書けること」。
+ */
+test('2軸のバーは塗りとトラックの差が 3:1 以上、名前は文字として 4.5:1 以上', () => {
+  for (const axis of ['soluble', 'insoluble'] as const) {
+    const { fill, track } = axisColors[axis];
+    assert.ok(contrast(fill, track) >= 3, `${axis} 塗り対トラック: ${contrast(fill, track).toFixed(2)}`);
+    assert.ok(contrast(fill, colors.card) >= 4.5, `${axis} 名前をカード上に: ${contrast(fill, colors.card).toFixed(2)}`);
+    assert.ok(contrast(fill, colors.bg) >= 4.5, `${axis} 名前を地の上に: ${contrast(fill, colors.bg).toFixed(2)}`);
+    // キャラの明度帯(73〜81%)を空ける制約は軸の色にも効く
+    assert.ok(lightness(fill) <= 62, `${axis} 塗りが明るすぎる: ${lightness(fill).toFixed(1)}%`);
+    assert.ok(lightness(track) >= 90, `${axis} トラックが暗すぎる: ${lightness(track).toFixed(1)}%`);
+  }
 });
 
 test('削除など注意色も 4.5:1 以上', () => {

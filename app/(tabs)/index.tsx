@@ -1,6 +1,6 @@
 /**
  * ホーム（最重要画面・DESIGN §7）。
- * 上から: キャラ → 今日のメーター → 今日の提案1つ → 記録するボタン → 今日の記録。
+ * 上から: キャラ → 今日のメーター → 2軸の内訳 → 今日の提案1つ → 記録するボタン → 今日の記録。
  * ここに置けるカードは1枚だけ。増やすと「情報が多すぎる」に戻る。
  */
 import React, { useEffect, useRef, useState } from 'react';
@@ -9,6 +9,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import GutCharacterLive from '../../components/GutCharacterLive';
 import Meter from '../../components/Meter';
+import AxisBars from '../../components/AxisBars';
 import CoachCard from '../../components/CoachCard';
 import QuantitySheet from '../../components/QuantitySheet';
 import Toast from '../../components/Toast';
@@ -99,6 +100,8 @@ export default function HomeScreen() {
               : null
           }
         />
+
+        <AxisBars today={gut.today} targets={targets} />
 
         {coach ? (
           <CoachCard
@@ -201,7 +204,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     ...elevation.raised,
   },
-  ctaPressed: { backgroundColor: '#18604B' },
+  ctaPressed: { backgroundColor: colors.accentPressed },
   ctaText: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
   listCard: {
     backgroundColor: colors.card,

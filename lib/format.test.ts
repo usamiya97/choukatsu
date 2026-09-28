@@ -6,6 +6,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import {
+  AXIS,
+  axisName,
+  axisRemainWord,
   bannedLabels,
   fiberOf,
   fillRatio,
@@ -112,4 +115,37 @@ test('2個以上は「× 2」と書く（単位を勝手に変えない）', () 
   assert.equal(servingLabel(natto, 1), `${natto.displayName} ${natto.unitLabel}`);
   assert.equal(servingLabel(natto, 2), `${natto.displayName} ${natto.unitLabel} × 2`);
   assert.equal(servingLabel(natto, 0.5), `${natto.displayName} ${natto.unitLabel} × 0.5`);
+});
+
+
+/**
+ * 軸の語彙。ニックネームだけに戻る／専門語だけになる、のどちらも防ぐ。
+ * ここが崩れると画面のどこかで呼び名が2種類に増える。
+ */
+test('軸の名前はニックネームに専門語を括弧で添える', () => {
+  assert.equal(axisName('soluble'), '菌のごはん（水溶性）');
+  assert.equal(axisName('insoluble'), 'おそうじ（不溶性）');
+  // 同じ画面で2度目に出すときは括弧を落とす
+  assert.equal(axisName('soluble', false), '菌のごはん');
+  // 総量は専門語を持たないので、括弧を付けようとしても増えない
+  assert.equal(axisName('total'), '食物繊維');
+  assert.equal(axisName('total', true), '食物繊維');
+});
+
+test('2軸は note（何をする繊維か）と look（キャラのどこに効くか）を必ず持つ', () => {
+  for (const axis of ['soluble', 'insoluble'] as const) {
+    const a = AXIS[axis];
+    assert.ok(a.term, `${axis}: 専門語がない`);
+    assert.ok(a.note && a.note.length >= 10, `${axis}: 説明が短すぎる`);
+    assert.ok(a.look && a.look.includes('キャラ'), `${axis}: キャラとの対応がない`);
+  }
+});
+
+test('軸の残りは切り上げる（「あと0g」と言わない）', () => {
+  assert.equal(axisRemainWord(0, 8), 'あと 8g');
+  assert.equal(axisRemainWord(7.1, 8), 'あと 1g');
+  // 0.1g足りない日に「あと0g」ではなく「あと1g」と言う
+  assert.equal(axisRemainWord(7.9, 8), 'あと 1g');
+  assert.equal(axisRemainWord(8, 8), '届きました');
+  assert.equal(axisRemainWord(20, 8), '届きました');
 });

@@ -31,7 +31,8 @@
     "build:data": "node scripts/build-data.mjs",
     "test": "tsx --test lib/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "dryrun": "tsx scripts/dryrun.ts"
+    "dryrun": "tsx scripts/dryrun.ts",
+    "dryrun:parse": "tsx scripts/parse-dryrun.ts"
   },
   "private": true
 }

@@ -6,12 +6,56 @@
  */
 import type { Caution, Serving, Totals } from './types';
 
-/** UIに出す軸の呼び名。専門語は画面に出さない */
-export const AXIS_LABEL = {
-  total: '食物繊維',
-  soluble: '菌のごはん',
-  insoluble: 'おそうじ',
+/**
+ * UIに出す軸の語彙。**ここが唯一の定義**（画面に軸の名前を直接書かない）。
+ *
+ * ニックネームを主役にし、専門語は括弧で添える（DESIGN §5-2 を 2026-09-26 に緩めた）。
+ * ニックネームだけだと「おそうじ＝何を掃除するのか」が伝わらず、
+ * 専門語だけだと「情報が多すぎる(30%)」を自分で再生産する。だから両方を1行に収める。
+ *
+ * `look` はキャラのどこに効くか。2軸を覚えるための唯一の手がかりなので必ず添える
+ * （見た目と結びつかない数字は覚えられない）。
+ */
+export const AXIS = {
+  total: {
+    name: '食物繊維',
+    term: null,
+    note: null,
+    look: null,
+  },
+  soluble: {
+    name: '菌のごはん',
+    term: '水溶性',
+    note: '水にとけて、腸の菌のエサになる繊維',
+    look: 'キャラの色つやと、まわりの菌になります',
+  },
+  insoluble: {
+    name: 'おそうじ',
+    term: '不溶性',
+    note: '水にとけず、水を含んでかさを増やす繊維',
+    look: 'キャラのふくらみになります',
+  },
 } as const;
+
+export type Axis = keyof typeof AXIS;
+
+/**
+ * 「菌のごはん（水溶性）」。軸の名前を画面に出すときは必ずこれを通す。
+ * 同じ画面で2度目に出すときだけ `withTerm: false`（括弧が続くと読みにくい）。
+ */
+export function axisName(axis: Axis, withTerm = true): string {
+  const a = AXIS[axis];
+  return withTerm && a.term ? `${a.name}（${a.term}）` : a.name;
+}
+
+/**
+ * 軸ごとの残り。「あと 3g」/「届きました」。
+ * 総量と同じく小数点は出さない。切り上げるのは「あと0g」と言わないため
+ */
+export function axisRemainWord(value: number, target: number): string {
+  if (value >= target) return '届きました';
+  return `あと ${Math.max(1, Math.ceil(target - value))}g`;
+}
 
 export type Evidence = 'あなたのデータ' | '成分表より' | '一般に言われる';
 

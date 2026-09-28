@@ -11,6 +11,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import GutCharacterLive from '../components/GutCharacterLive';
+import AxisLegend from '../components/AxisLegend';
 import { CheckIcon } from '../components/Icons';
 import { DIAGNOSIS, labelsForName } from '../lib/dataset';
 import { scoreDiagnosis, type Answers } from '../lib/diagnosis';
@@ -92,6 +93,7 @@ export default function Onboarding() {
           いまの食物繊維は 1日 およそ {Math.round(result.estTotal)}g と見ています。
           3日 記録すると、この推定は捨ててあなたの実測に切り替わります。
         </Text>
+        <AxisLegend targets={targets} />
         {result.excludedFoods.length ? (
           <Text style={styles.small}>苦手だと答えたものは、提案に出しません（設定でいつでも変えられます）</Text>
         ) : null}
@@ -242,6 +244,6 @@ const styles = StyleSheet.create({
     marginTop: space.lg,
     ...elevation.raised,
   },
-  ctaPressed: { backgroundColor: '#18604B' },
+  ctaPressed: { backgroundColor: colors.accentPressed },
   ctaText: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
 });

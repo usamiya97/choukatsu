@@ -1,16 +1,18 @@
 /**
  * 永続化（AsyncStorage）。v1はサーバを持たない＝端末内で完結する。
  *
- * 保存するのは「記録」「プロフィール」「表示のための最小の状態」の3つだけ。
+ * 保存するのは「記録」「プロフィール」「表示のための最小の状態」「学習した語」の4つだけ。
  * 段階(stage)を保存しているのは、ヒステリシスが前回の段階に依存するため（履歴が無いと解けない）。
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import type { Learned } from './lexicon';
 import type { Logs, Stage } from './types';
 
 const K = {
   logs: '@chokatsu/logs/v1',
   profile: '@chokatsu/profile/v1',
   ui: '@chokatsu/ui/v1',
+  learned: '@chokatsu/learned/v1',
 } as const;
 
 export type Profile = {
@@ -85,7 +87,25 @@ export const saveProfile = (p: Profile) => AsyncStorage.setItem(K.profile, JSON.
 export const loadUi = () => read<UiState>(K.ui, EMPTY_UI);
 export const saveUi = (u: UiState) => AsyncStorage.setItem(K.ui, JSON.stringify(u));
 
+/**
+ * 学習した「自由文の語 → プリセットのlabel」（lib/mealparse.ts learnFrom）。
+ * LLMが1度解いた語はここに残り、次回から辞書だけで解ける＝呼び出しが減る。
+ *
+ * サーバを持たないので端末ごとに溜まる。TODO 19 の「全ユーザー共通辞書」は
+ * 共有する置き場が決まってから（誰かの誤りが全員に配られる形になるので、設計が別途必要）。
+ */
+export async function loadLearned(): Promise<Learned> {
+  try {
+    const raw = await AsyncStorage.getItem(K.learned);
+    return raw ? (JSON.parse(raw) as Learned) : {};
+  } catch {
+    return {};
+  }
+}
+
+export const saveLearned = (l: Learned) => AsyncStorage.setItem(K.learned, JSON.stringify(l));
+
 /** 設定画面の「データを消す」用 */
 export async function clearAll(): Promise<void> {
-  await AsyncStorage.multiRemove([K.logs, K.profile, K.ui]);
+  await AsyncStorage.multiRemove([K.logs, K.profile, K.ui, K.learned]);
 }

@@ -9,7 +9,7 @@
  */
 import { pickCoach } from '../lib/coach';
 import { CAUTIONS, COACH, GUIDELINE_TOTAL, SERVINGS, SWAPS, targetsFor } from '../lib/dataset';
-import { fillRatio, progressWord, remainHint } from '../lib/format';
+import { axisName, axisRemainWord, fillRatio, progressWord, remainHint } from '../lib/format';
 import { computeGutState, dateKey, shiftDays } from '../lib/state';
 import type { Logs, Stage } from '../lib/types';
 
@@ -83,7 +83,7 @@ const scenarios: { name: string; logs: Logs; estimate?: number | null; prevStage
   },
 ];
 
-console.log(`目標: 総量${TARGETS.total}g / 菌のごはん${TARGETS.soluble}g / おそうじ${TARGETS.insoluble}g` +
+console.log(`目標: 総量${TARGETS.total}g / ${axisName('soluble')}${TARGETS.soluble}g / ${axisName('insoluble')}${TARGETS.insoluble}g` +
   (TARGETS.total > GUIDELINE_TOTAL ? `（公的な目安${GUIDELINE_TOTAL}gより高い設定）` : ''));
 
 for (const sc of scenarios) {
@@ -106,12 +106,21 @@ for (const sc of scenarios) {
   console.log(`メーター    ${progressWord(gut.today.total, TARGETS.total)}  [${bar(fillRatio(gut.today.total, TARGETS.total))}]`);
   console.log(`            ${hint?.text ?? '（達成したので「あと○○」は出さない）'}`);
   if (gut.provisional) console.log(`            まだ見極め中です（3日記録すると実測に切り替わります）`);
+  // ホームの内訳バー（components/AxisBars.tsx が出す文言と同じもの）
+  for (const axis of ['soluble', 'insoluble'] as const) {
+    const value = gut.today[axis];
+    const target = TARGETS[axis];
+    const pad = axis === 'soluble' ? '内訳        ' : '            ';
+    console.log(
+      `${pad}${axisName(axis)}  [${bar(fillRatio(value, target))}]  ${axisRemainWord(value, target)}`
+    );
+  }
   console.log(`提案        ${coach ? `[${coach.trigger}] ${coach.item.message}` : '（なし）'}`);
   if (coach) console.log(`            ${coach.item.reason}  《${coach.evidence}》`);
   const share = gut.today.total > 0 ? (gut.today.soluble / gut.today.total) * 100 : 0;
   console.log(
-    `内部値      総量${gut.today.total.toFixed(2)}g / 菌のごはん${gut.today.soluble.toFixed(2)}g / ` +
-      `おそうじ${gut.today.insoluble.toFixed(2)}g（水溶の割合 ${share.toFixed(0)}%・理想33%）`
+    `内部値      総量${gut.today.total.toFixed(2)}g / 水溶性${gut.today.soluble.toFixed(2)}g / ` +
+      `不溶性${gut.today.insoluble.toFixed(2)}g（水溶の割合 ${share.toFixed(0)}%・理想33%）`
   );
 }
 

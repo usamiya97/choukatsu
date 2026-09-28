@@ -2,7 +2,9 @@
  * デザイントークン。画面に生の色・生の数値を書かず、必ずここを経由する。
  *
  * スタイルの方針は Soft UI 寄り（やわらかい影＋十分なコントラスト）。
- * 配色は「キャラが主役」なので、UIは彩度を落とした青緑〜灰で受け、
+ * 配色はピンク（ローズ）系。キャラ本体もピンク(hue 347〜350・明度73〜81%)なので、
+ * **UIは「ごく淡い地」と「深いローズ」の2極だけ**に置き、キャラと同じ明度帯を空けている。
+ * 中間の明るいピンクをUIに足すとキャラが地に溶けて段階が読めなくなる（ここが唯一の禁止事項）。
  * 色で意味を持たせるのは達成/未達の2つだけに絞っている。
  *
  * ライト固定にしている理由: キャラの色は明るい地の上での「血色」として
@@ -12,31 +14,50 @@
  * （app.json も userInterfaceStyle: "light" で固定してある）。
  */
 export const colors = {
-  bg: '#F7F9F8',
+  bg: '#FDF4F7',
   card: '#FFFFFF',
-  border: '#E3E9E7',
-  /** 本文。bg に対して 14.0:1 */
-  text: '#1E2A28',
-  /** 補助テキスト。bg に対して 5.3:1（小さい字でも AA を満たす） */
-  textMuted: '#5A6B68',
-  /** 達成の色。まわりの菌の色(hue 158)と揃える。bg に対して 3.2:1（図形としてはOK・文字には使わない） */
-  accent: '#2F9E7E',
+  border: '#F0DCE5',
+  /** 本文。bg に対して 15.1:1 */
+  text: '#2A1C22',
+  /** 補助テキスト。bg に対して 6.2:1（小さい字でも AA を満たす） */
+  textMuted: '#6E5560',
+  /** 達成の色。bg に対して 3.6:1（図形としてはOK・文字には使わない） */
+  accent: '#DB4A87',
   /**
    * 文字を乗せる面と、進捗バーの塗り。
-   * 白文字で 5.8:1 / accentSoft のトラックに対して 4.9:1。
-   * accent をバーの塗りに使うとトラックとの差が 2.8:1 で、図形の 3:1 を切る
+   * 白文字で 6.9:1 / accentSoft のトラックに対して 5.5:1。
+   * accent をバーの塗りに使うとトラックとの差が 3:1 を切る
    */
-  accentStrong: '#1F7259',
-  accentSoft: '#DCEFE8',
+  accentStrong: '#A62462',
+  /** accentStrong の押下。白文字 9.0:1。画面ごとに生の暗いピンクを書かない */
+  accentPressed: '#8A1A50',
+  accentSoft: '#F7DFEA',
   /** タップできる面 */
-  tap: '#F0F4F3',
-  tapPressed: '#DCEFE8',
-  badge: '#EEF2F1',
+  tap: '#FAF0F4',
+  tapPressed: '#F7DFEA',
+  badge: '#F5ECEF',
+  /** 注意色。accentStrong と明度が近いので、色だけで削除を伝えない（必ずアイコン＋文字を添える） */
   danger: '#A33A31',
   /** トーストの地。text と同じ色の 92%（透けすぎると下の文字と混ざって読めない） */
-  scrim: 'rgba(30,42,40,0.92)',
+  scrim: 'rgba(42,28,34,0.92)',
   /** scrim の不透明版。コントラスト計算用（透明度込みの実測はこの色に近い） */
-  scrimHex: '#1E2A28',
+  scrimHex: '#2A1C22',
+} as const;
+
+/**
+ * 2軸（菌のごはん／おそうじ）の色。**キャラのどこに効くかと対応させる。**
+ * soluble は「まわりの菌」と同じ緑(hue 158)、insoluble は本体と同じローズ。
+ * 言葉だけでは2軸を覚えられないので、色でキャラと結びつける。
+ *
+ * 2つの塗りは明度がほぼ同じ（互いに 1.2:1）で、**色相でしか区別できない**。
+ * だから軸のバーには必ず名前を添える（色だけで意味を持たせない）。
+ * colors と同じ制約: 塗りは明度62%以下・トラックは90%以上（キャラの帯を空ける）。
+ */
+export const axisColors = {
+  /** 塗り対トラック 4.9:1 / 白地に文字として 5.8:1 */
+  soluble: { fill: '#1F7259', track: '#DFF0EA' },
+  /** 塗り対トラック 5.5:1 */
+  insoluble: { fill: colors.accentStrong, track: colors.accentSoft },
 } as const;
 
 /** 4/8 のリズム。セクション間は lg 以上を使う */
@@ -67,14 +88,14 @@ export const motion = {
 /** やわらかい影。Androidは elevation、iOSは shadow* を使う */
 export const elevation = {
   card: {
-    shadowColor: '#1E2A28',
+    shadowColor: '#2A1C22',
     shadowOpacity: 0.06,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 3 },
     elevation: 2,
   },
   raised: {
-    shadowColor: '#1E2A28',
+    shadowColor: '#2A1C22',
     shadowOpacity: 0.1,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 6 },

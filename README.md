@@ -10,9 +10,10 @@
 ```bash
 npm install                # 初回。peer依存の衝突があるときは --legacy-peer-deps
 npm start                  # data/generated を作ってから Expo を起動する（prestart）
-npm test                   # ロジックのテスト（68件・端末不要）
+npm test                   # ロジックのテスト（117件・端末不要）
 npm run typecheck          # tsc --noEmit
-npm run dryrun             # 画面に出る文言と数字を5シナリオぶん表示（端末不要）
+npm run dryrun             # 画面に出る文言と数字を6シナリオぶん表示（端末不要）
+npm run dryrun:parse       # 自由文入力が辞書だけでどこまで解けるか（LLMを呼ばない）
 npx tsx scripts/dryrun.ts 18   # 目標値を変えて検算（18/21/25/30）
 ```
 
@@ -30,14 +31,16 @@ app/                     Expo Router
 ├── onboarding.tsx       初回診断10問（スキップ可）
 └── food/[label].tsx     食品詳細（根拠の開示）
 
-components/              GutCharacter(静止SVG) / GutCharacterLive(動き) / Meter / CoachCard
-                         ServingChip / QuantitySheet / QuantityStepper / Toast / TabIcon / Icons
+components/              GutCharacter(静止SVG) / GutCharacterLive(動き) / Meter / AxisBars / AxisLegend
+                         CoachCard / ServingChip / QuantitySheet / QuantityStepper / Toast / TabIcon / Icons
 lib/                     state(状態モデル) targets(目標と2軸の比) coach(提案選択) format(表示) diagnosis(採点)
+                         lexicon(自由文→プリセットの辞書) mealparse(LLM名寄せ層・呼び出しは注入)
                          dataset(生成JSONの入口) store(Context) storage(AsyncStorage)
                          theme(デザイントークン) motion(アニメ・触覚)
 scripts/build-data.mjs   CSV → JSON ＋ 相互参照の検証
 scripts/expand-servings.mjs  プリセット品目の追加（成分表から値を計算）
 scripts/dryrun.ts        画面の文言と数字を端末なしで確認
+scripts/parse-dryrun.ts  自由文入力の命中率（--live で実際にAPIを叩く。SDKは動的import）
 data/                    出典データ。詳細は data/README.md
 ```
 
@@ -53,7 +56,10 @@ data/                    出典データ。詳細は data/README.md
 | 提案は1日1つ。同じ日は何度開いても同じもの | `lib/coach.ts` `dailyIndex` |
 | 苦手（診断q10）と軸ごとの禁止リストを必ず外す | `lib/coach.ts` / `lib/format.ts` `bannedLabels` |
 | 小数点を出さない。「8割くらい」「あと納豆1パック分」 | `lib/format.ts` |
-| 専門語（水溶性/不溶性）をUIに出さない | `lib/format.ts` `AXIS_LABEL` |
+| 軸の呼び名は「菌のごはん（水溶性）」。ニックネーム主役＋専門語を括弧で1度 | `lib/format.ts` `AXIS` / `axisName` |
+| 自由文入力は辞書で解けたらLLMを呼ばない。呼び出し回数＝費用 | `lib/lexicon.ts` `resolveMeal` |
+| LLMに繊維量を計算させない。出力スキーマにg/繊維量のフィールドを置かない | `lib/mealparse.ts` `PARSE_SCHEMA` |
+| プリセットに無い label は記録に入れない。壊れた返りで例外を投げない | `lib/mealparse.ts` `resolveParsed` |
 | 出典を画面に出す（成分表の利用条件） | `app/(tabs)/settings.tsx` / `app/food/[label].tsx` |
 | 色・余白・文字サイズは必ずトークン経由。コントラスト比はテストで固定 | `lib/theme.ts` / `lib/theme.test.ts` |
 | 動きは transform/opacity のみ。「視差効果を減らす」ONで全部止める | `lib/motion.ts` / `components/GutCharacterLive.tsx` |

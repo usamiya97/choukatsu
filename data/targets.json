@@ -58,14 +58,21 @@
   },
   "display_rules": {
     "hide_decimals": true,
-    "never_show_terms": [
-      "水溶性",
-      "不溶性"
-    ],
-    "use_instead": {
-      "soluble": "菌のごはん",
-      "insoluble": "おそうじ"
+    "axis_labels": {
+      "soluble": {
+        "name": "菌のごはん",
+        "term": "水溶性",
+        "note": "水にとけて、腸の菌のエサになる繊維",
+        "look": "キャラの色つやと、まわりの菌になります"
+      },
+      "insoluble": {
+        "name": "おそうじ",
+        "term": "不溶性",
+        "note": "水にとけず、水を含んでかさを増やす繊維",
+        "look": "キャラのふくらみになります"
+      }
     },
+    "why_axis_labels": "2026-09-26まではnever_show_terms=[水溶性,不溶性]としてニックネームだけを出していたが、ニックネームだけでは「おそうじ=何を掃除するのか」が伝わらないという指摘で方針を変えた。ニックネームを主役に、専門語を括弧で1度だけ添える。実装はlib/format.tsのAXISが唯一の定義で、このJSONは記録用。",
     "attribution": "日本食品標準成分表（八訂）増補2023年から引用"
   },
   "app_target": {

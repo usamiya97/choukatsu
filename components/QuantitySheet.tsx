@@ -190,7 +190,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  ctaPressed: { backgroundColor: '#18604B' },
+  ctaPressed: { backgroundColor: colors.accentPressed },
   ctaText: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
   links: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   link: { minHeight: 40, justifyContent: 'center' },

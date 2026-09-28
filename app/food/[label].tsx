@@ -13,10 +13,10 @@ import QuantityStepper from '../../components/QuantityStepper';
 import Toast from '../../components/Toast';
 import { ChevronRightIcon, PlusIcon } from '../../components/Icons';
 import { CAUTIONS, SWAPS, findServing, labelsForName } from '../../lib/dataset';
-import { ATTRIBUTION, formatCount, gramsOf } from '../../lib/format';
+import { ATTRIBUTION, axisName, formatCount, gramsOf } from '../../lib/format';
 import { haptics } from '../../lib/motion';
 import { useStore } from '../../lib/store';
-import { colors, elevation, hit, radius, space, type } from '../../lib/theme';
+import { axisColors, colors, elevation, hit, radius, space, type } from '../../lib/theme';
 
 export default function FoodDetail() {
   const { label } = useLocalSearchParams<{ label: string }>();
@@ -66,8 +66,19 @@ export default function FoodDetail() {
             {serving.unitLabel}（{serving.servingG}g）で 食物繊維 約 {serving.total.toFixed(1)}g
           </Text>
           {serving.total <= 0 ? <Text style={styles.small}>この食品の食物繊維は 0g です</Text> : null}
+          {serving.total > 0 ? (
+            <View style={styles.breakdown}>
+              {/* 2軸の内訳。どの食品がどちらに効くかは、具体例で覚えるしかない */}
+              <Text style={[styles.breakdownRow, { color: axisColors.soluble.fill }]}>
+                {axisName('soluble')} 約 {serving.soluble.toFixed(1)}g
+              </Text>
+              <Text style={[styles.breakdownRow, { color: axisColors.insoluble.fill }]}>
+                {axisName('insoluble')} 約 {serving.insoluble.toFixed(1)}g
+              </Text>
+            </View>
+          ) : null}
           {serving.solubleRatio >= 0.4 && serving.total > 0 ? (
-            <Text style={styles.small}>菌のごはんの割合が高めの食品です</Text>
+            <Text style={styles.small}>{axisName('soluble', false)}の割合が高めの食品です</Text>
           ) : null}
         </View>
 
@@ -186,6 +197,8 @@ const styles = StyleSheet.create({
   amountResult: { ...type.small },
   body: { ...type.body },
   small: { ...type.small },
+  breakdown: { gap: space.xs, marginTop: space.xs },
+  breakdownRow: { ...type.small, fontWeight: '700' },
   badge: {
     alignSelf: 'flex-start',
     backgroundColor: colors.badge,
@@ -214,6 +227,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     ...elevation.raised,
   },
-  ctaPressed: { backgroundColor: '#18604B' },
+  ctaPressed: { backgroundColor: colors.accentPressed },
   ctaText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
 });

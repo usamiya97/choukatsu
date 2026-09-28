@@ -11,7 +11,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CheckIcon, ChevronRightIcon } from '../../components/Icons';
 import { DEFAULT_TARGET_TOTAL, DIAGNOSIS, GUIDELINE_TOTAL, TARGET_OPTIONS, findServing, labelsForName } from '../../lib/dataset';
-import { ATTRIBUTION } from '../../lib/format';
+import { ATTRIBUTION, axisName } from '../../lib/format';
 import { useStore } from '../../lib/store';
 import { stageThresholds } from '../../lib/state';
 import { SOLUBLE_CAP_G } from '../../lib/targets';
@@ -82,9 +82,10 @@ export default function SettingsScreen() {
           高い目標から始めて、続かないと感じたら下げてかまいません。
         </Text>
         <Text style={styles.small}>
-          ※「菌のごはん」と「おそうじ」の目安は、総量から 1:2 で出します
-          （いまは {targets.soluble}g / {targets.insoluble}g）。この比率が整っているときがいちばん働きやすいと
-          言われている配分です。菌のごはん側は {SOLUBLE_CAP_G}g で打ち止めにしています（毎日狙える範囲に留めるため）。
+          ※ 内訳の目安は総量から 1:2 で出します。{axisName('soluble')} が {targets.soluble}g、
+          {axisName('insoluble')} が {targets.insoluble}g。この比率が整っているときがいちばん働きやすいと
+          言われている配分です。{axisName('soluble', false)}側は {SOLUBLE_CAP_G}g で打ち止めにしています
+          （毎日狙える範囲に留めるため）。
         </Text>
       </Card>
 
