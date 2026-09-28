@@ -142,8 +142,21 @@ export const COUNT_MAX = 10;
 
 /** ＋／− を押したときの次の値。範囲外に出さない */
 export function stepCount(current: number, delta: number): number {
-  const next = Math.round((current + delta * COUNT_STEP) / COUNT_STEP) * COUNT_STEP;
-  return Math.min(COUNT_MAX, Math.max(COUNT_MIN, Number(next.toFixed(1))));
+  return stepBy(current, delta, { step: COUNT_STEP, min: COUNT_MIN, max: COUNT_MAX });
+}
+
+/**
+ * 刻みつきの増減。食品の量（0.5刻み）とお通じの回数（1刻み）で
+ * **同じステッパー部品を使う**ために切り出した（components/QuantityStepper.tsx）。
+ * 部品を2つ持つと、押し心地と読み上げが片方だけ古くなる。
+ */
+export function stepBy(
+  current: number,
+  delta: number,
+  o: { step: number; min: number; max: number }
+): number {
+  const next = Math.round((current + delta * o.step) / o.step) * o.step;
+  return Math.min(o.max, Math.max(o.min, Number(next.toFixed(1))));
 }
 
 /** その量のグラム数（表示用）。内部では常用量×個数で計算している */
@@ -157,6 +170,7 @@ export function fiberOf(s: Serving, count: number): number {
 }
 
 /** 2軸の目標とバランス判定は lib/targets.ts にある（比率の意味を1か所に集めるため） */
+/** お通じの語彙と言語化は lib/stool.ts にある（同じ理由。数え方と言い方を1か所に集めるため） */
 
 /** v2の見た目の変調パラメータ。GutCharacter に渡す */
 export function modulation(t: Totals, targets: { soluble: number; insoluble: number }) {

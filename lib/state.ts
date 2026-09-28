@@ -146,6 +146,47 @@ export function resolveStage(score: number, prev: Stage = 1, targetTotal = 18): 
   return stage;
 }
 
+/**
+ * 空白が続いたときに段階の上限を1つ下げる間隔（日）。
+ * 7日にしたのは、上げる側も7日平均が動かないと上がらないため（上下の速さを揃える）。
+ */
+export const STAGE_IDLE_STEP_DAYS = 7;
+
+/**
+ * 記録が無いまま idleDays 日たったときの**段階の上限**。
+ *
+ * 記録が無い日は「食物繊維をとっていない」と見なして落とす。ただし**一気には落とさない**。
+ * 7日の窓が空になった瞬間に平均0gで評価すると段階4から段階1まで一足で落ちるので
+ * （2026-09-29 に実測して見つけた崖）、1週ごとに1段だけ下げる。
+ * 空白4週間で段階1（眠っている）に着く。
+ *
+ * **「前回の段階 − N段」ではなく上限にしてある**のが要点。段階は保存される値なので
+ * （`UiState.stage`）、毎回 prev から引くと「引いた結果」からまた引いて二重に落ちる
+ * （prev4 → 8日目に3 → 15日目に1）。`min(prev, 上限)` は何度当てても同じ値になる。
+ *
+ * 副作用として、もともと低い段階の人は落ちるのが遅い（段階2の人は22日目まで段階2のまま）。
+ * これは意図どおり。積み上げが少ない人から先に取り上げない。
+ */
+export function idleStageCeiling(idleDays: number): Stage {
+  const steps = Math.floor((idleDays - 1) / STAGE_IDLE_STEP_DAYS);
+  return Math.max(1, Math.min(5, 5 - steps)) as Stage;
+}
+
+/**
+ * 今日より前で最後に記録した日から何日空いたか。**今日は数に入れない。**
+ * 今日より前に記録が1件も無ければ null（初日の人と、診断だけで終えた人）。
+ *
+ * `daysSinceLastLog`（復帰トリガー用）と分けてあるのは、あちらが今日の記録も見るため。
+ * 段階の判定では「今日をどれだけ記録しても、過去の空白は埋まらない」を保ちたい。
+ */
+export function idleDaysBefore(logs: Logs, todayKey: string): number | null {
+  const last = Object.keys(logs)
+    .filter((k) => k < todayKey && logs[k].length)
+    .sort()
+    .pop();
+  return last ? daysBetween(last, todayKey) : null;
+}
+
 /** 累積でユニークに記録した食品数（0..プリセット数）。減らない */
 export function floraCount(logs: Logs): number {
   return uniqueLabels(logs).size;
@@ -224,6 +265,10 @@ export type GutState = {
   floraDots: number;
   weekLogDays: number;
   totalLoggedDays: number;
+  /** 今日より前で最後に記録した日からの空白（日）。記録が無ければ null */
+  idleDays: number | null;
+  /** 段階が空白の長さで抑えられている（7日の窓に記録が1日も無い）か */
+  fading: boolean;
   /** 診断の推定値ではなく実測を使ってよいか（記録3日以上） */
   useMeasured: boolean;
   /** 段階が診断の推定値で動いている（暫定表示）か */
@@ -252,15 +297,33 @@ export function computeGutState(
       : measured;
   const flora = floraCount(logs);
   const logged = totalLoggedDays(logs);
+
+  /**
+   * 7日の窓に記録が1日も無い（＝空白8日以上）ときは、**平均を段階の根拠にしない。**
+   * 平均は 0g になるので、そのまま resolveStage に渡すと段階1まで落ちる（崖）。
+   * 代わりに空白の長さで上限を下げる（`idleStageCeiling`）。
+   *
+   * 窓に1日でも記録があれば空白は7日以下で、上限は5＝従来どおり平均だけで決まる。
+   * 久しぶりに記録した当日も上限側で決める（今日の1品だけで7日平均を作らない）。
+   * 翌日には今日が窓に入るので、実測の平均に自然に戻る。
+   */
+  const idleDays = idleDaysBefore(logs, todayKey);
+  const fading = idleDays !== null && idleDays > STAGE_IDLE_STEP_DAYS;
+  const stage = fading
+    ? (Math.min(prevStage, idleStageCeiling(idleDays)) as Stage)
+    : resolveStage(score.score, prevStage, targetTotal);
+
   return {
     today: dayTotals(logs, todayKey, byLabel),
-    stage: resolveStage(score.score, prevStage, targetTotal),
+    stage,
     stageScore: score.score,
     stageLoggedDays: score.loggedDays,
     flora,
     floraDots: floraDots(flora),
     weekLogDays: weekLogDays(logs, todayKey),
     totalLoggedDays: logged,
+    idleDays,
+    fading,
     useMeasured,
     /** 段階が診断の推定値で暫定表示されているか（画面に「まだ見極め中」と出す） */
     provisional: !useMeasured && estimate !== null,

@@ -1,18 +1,19 @@
 /**
  * 永続化（AsyncStorage）。v1はサーバを持たない＝端末内で完結する。
  *
- * 保存するのは「記録」「プロフィール」「表示のための最小の状態」「学習した語」の4つだけ。
+ * 保存するのは「記録」「お通じ」「プロフィール」「表示のための最小の状態」「学習した語」だけ。
  * 段階(stage)を保存しているのは、ヒステリシスが前回の段階に依存するため（履歴が無いと解けない）。
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Learned } from './lexicon';
-import type { Logs, Stage } from './types';
+import type { Logs, Stage, StoolLog } from './types';
 
 const K = {
   logs: '@chokatsu/logs/v1',
   profile: '@chokatsu/profile/v1',
   ui: '@chokatsu/ui/v1',
   learned: '@chokatsu/learned/v1',
+  stool: '@chokatsu/stool/v1',
 } as const;
 
 export type Profile = {
@@ -33,6 +34,17 @@ export type Profile = {
    * 段階の閾値もこれに連動する（lib/state.ts stageThresholds）。
    */
   targetTotal: number | null;
+  /**
+   * お通じを記録する時刻('HH:MM')。**null は「まだ決めていない」**で、催促しない
+   * （決めていない人に「時間になりました」とは言えない）。初回の10問のあとに聞く。
+   */
+  stoolReminderAt: string | null;
+  /**
+   * その時刻に端末の通知を出すか。**許可が取れたときだけ true。**
+   * 通知が使えない端末（Expo Go の Android 等）でも false のまま動く＝
+   * ホームの催促の行だけが残る（DESIGN §15-3）。
+   */
+  stoolNotify: boolean;
 };
 
 export const EMPTY_PROFILE: Profile = {
@@ -44,6 +56,8 @@ export const EMPTY_PROFILE: Profile = {
   concerns: [],
   excludedFoods: [],
   targetTotal: null,
+  stoolReminderAt: null,
+  stoolNotify: false,
 };
 
 export type UiState = {
@@ -86,6 +100,21 @@ export async function saveLogs(logs: Logs): Promise<void> {
   await AsyncStorage.setItem(K.logs, JSON.stringify(logs));
 }
 
+/**
+ * お通じの記録。Logs と同じく **キーが無い日は「未記録」**（0回で埋めない）。
+ * 壊れていたら空にする（アプリは開く）。
+ */
+export async function loadStool(): Promise<StoolLog> {
+  try {
+    const raw = await AsyncStorage.getItem(K.stool);
+    return raw ? (JSON.parse(raw) as StoolLog) : {};
+  } catch {
+    return {};
+  }
+}
+
+export const saveStool = (s: StoolLog) => AsyncStorage.setItem(K.stool, JSON.stringify(s));
+
 export const loadProfile = () => read<Profile>(K.profile, EMPTY_PROFILE);
 export const saveProfile = (p: Profile) => AsyncStorage.setItem(K.profile, JSON.stringify(p));
 
@@ -112,5 +141,5 @@ export const saveLearned = (l: Learned) => AsyncStorage.setItem(K.learned, JSON.
 
 /** 設定画面の「データを消す」用 */
 export async function clearAll(): Promise<void> {
-  await AsyncStorage.multiRemove([K.logs, K.profile, K.ui, K.learned]);
+  await AsyncStorage.multiRemove([K.logs, K.profile, K.ui, K.learned, K.stool]);
 }

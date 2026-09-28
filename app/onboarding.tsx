@@ -5,6 +5,10 @@
  * ここを必須にすると最初の壁になり、記録が始まる前に離脱する。
  *
  * 進捗は「3 / 10」と横バーの両方で出す（あと何問かが分からないと答える気にならない）。
+ *
+ * 10問のあとに**お通じを記録する時刻を1つ聞く**（DESIGN §15-3）。ここで聞くのは、
+ * 後から設定画面で見つけてもらえる機能ではないため（「毎日どこかで1回記録する」は
+ * 最初に置いておかないと習慣にならない）。ここも飛ばせる。
  */
 import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -12,21 +16,28 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import GutCharacterLive from '../components/GutCharacterLive';
 import AxisLegend from '../components/AxisLegend';
+import ReminderPicker from '../components/ReminderPicker';
 import { CheckIcon } from '../components/Icons';
 import { DIAGNOSIS, labelsForName } from '../lib/dataset';
 import { scoreDiagnosis, type Answers } from '../lib/diagnosis';
 import { resolveStage } from '../lib/state';
+import { DEFAULT_REMINDER_AT, reminderLabel } from '../lib/stool';
 import { useStore } from '../lib/store';
 import { colors, elevation, hit, radius, space, type } from '../lib/theme';
 
 export default function Onboarding() {
-  const { updateProfile, targets } = useStore();
+  const { updateProfile, targets, profile, setStoolReminder } = useStore();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const questions = DIAGNOSIS.questions;
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<Answers>({});
   const [result, setResult] = useState<ReturnType<typeof scoreDiagnosis> | null>(null);
+  // 10問 → 時刻 → 結果。時刻を最後の質問に混ぜないのは、診断の採点と関係が無いため
+  const [asking, setAsking] = useState<'questions' | 'reminder'>('questions');
+  const [reminderAt, setReminderAt] = useState<string | null>(
+    profile.stoolReminderAt ?? DEFAULT_REMINDER_AT
+  );
 
   const q = questions[step];
   const current = answers[q?.id ?? ''];
@@ -34,6 +45,12 @@ export default function Onboarding() {
     () => (current === undefined ? [] : Array.isArray(current) ? current : [current]),
     [current]
   );
+
+  /** 10問を答え終えたら、採点の前に時刻を聞く */
+  const askReminder = (a: Answers) => {
+    setAnswers(a);
+    setAsking('reminder');
+  };
 
   const finish = (a: Answers) => {
     const r = scoreDiagnosis(DIAGNOSIS, a, labelsForName);
@@ -68,7 +85,7 @@ export default function Onboarding() {
     next[q.id] = index;
     setAnswers(next);
     if (step + 1 < questions.length) setStep(step + 1);
-    else finish(next);
+    else askReminder(next);
   };
 
   if (result) {
@@ -97,6 +114,11 @@ export default function Onboarding() {
         {result.excludedFoods.length ? (
           <Text style={styles.small}>苦手だと答えたものは、提案に出しません（設定でいつでも変えられます）</Text>
         ) : null}
+        {reminderLabel(profile.stoolReminderAt) ? (
+          <Text style={styles.small}>
+            お通じは {reminderLabel(profile.stoolReminderAt)} にお聞きします（設定で変えられます）
+          </Text>
+        ) : null}
         <Pressable
           style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
           onPress={() => router.replace('/')}
@@ -104,6 +126,49 @@ export default function Onboarding() {
           accessibilityLabel="はじめる"
         >
           <Text style={styles.ctaText}>はじめる</Text>
+        </Pressable>
+      </ScrollView>
+    );
+  }
+
+  if (asking === 'reminder') {
+    return (
+      <ScrollView
+        style={styles.screen}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + space.xl }]}
+      >
+        <Text style={styles.question} accessibilityRole="header">
+          お通じの記録は、いつにしますか？
+        </Text>
+        <Text style={styles.small}>
+          1日のどこかで、回数と便の形を1回だけ記録します。決めた時刻にこちらから声をかけます。
+          食べたものの記録と並べて見られるようになります。
+        </Text>
+
+        <ReminderPicker value={reminderAt} onChange={setReminderAt} />
+
+        <Pressable
+          style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
+          onPress={async () => {
+            // 通知の許可はここで聞く（何のための許可かが分かる場所で聞く）。
+            // 断られても時刻は保存する＝ホームの行で催促する（DESIGN §15-3）
+            if (reminderAt) await setStoolReminder(reminderAt, true);
+            finish(answers);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="この時刻にして、結果を見る"
+        >
+          <Text style={styles.ctaText}>この時刻にする</Text>
+        </Pressable>
+
+        <Pressable
+          onPress={() => finish(answers)}
+          hitSlop={12}
+          style={styles.skipRow}
+          accessibilityRole="button"
+          accessibilityLabel="時刻を決めずに進む"
+        >
+          <Text style={styles.small}>あとで決める</Text>
         </Pressable>
       </ScrollView>
     );
@@ -172,7 +237,7 @@ export default function Onboarding() {
         )}
         {q.multi ? (
           <Pressable
-            onPress={() => (step + 1 < questions.length ? setStep(step + 1) : finish(answers))}
+            onPress={() => (step + 1 < questions.length ? setStep(step + 1) : askReminder(answers))}
             hitSlop={12}
             style={styles.footerButton}
             accessibilityRole="button"
@@ -229,6 +294,7 @@ const styles = StyleSheet.create({
     marginTop: space.md,
   },
   footerButton: { minHeight: hit.min, minWidth: 64, justifyContent: 'center' },
+  skipRow: { minHeight: hit.min, alignItems: 'center', justifyContent: 'center' },
   linkText: { ...type.body, color: colors.accentStrong, fontWeight: '700' },
   small: { ...type.small },
   body: { ...type.body },

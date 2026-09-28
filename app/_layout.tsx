@@ -4,6 +4,7 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StoreProvider, useStore } from '../lib/store';
+import { configureReminderPresentation, onReminderTap } from '../lib/reminder';
 import { colors, type } from '../lib/theme';
 
 export default function RootLayout() {
@@ -32,6 +33,17 @@ function Gate() {
     if (!profile.diagnosed && !onOnboarding) router.replace('/onboarding');
   }, [ready, profile.diagnosed, segments, router]);
 
+  /**
+   * お通じの通知を押して開いたときは、その画面まで連れていく
+   * （催促されてホームに着地しても、どこを押せばいいのか分からない）。
+   * 通知が使えない端末では onReminderTap が何もしない（lib/reminder.ts）。
+   */
+  useEffect(() => {
+    if (!ready || !profile.diagnosed) return;
+    configureReminderPresentation();
+    return onReminderTap(() => router.push('/stool'));
+  }, [ready, profile.diagnosed, router]);
+
   if (!ready) {
     // 起動直後の読み込み。何も出さないと固まったように見えるので必ず出す
     return (
@@ -58,6 +70,7 @@ function Gate() {
       <Stack.Screen name="onboarding" options={{ title: 'はじめの10問', presentation: 'modal' }} />
       <Stack.Screen name="food/[label]" options={{ title: '食品のくわしい話' }} />
       <Stack.Screen name="compose" options={{ title: 'まとめて書く', presentation: 'modal' }} />
+      <Stack.Screen name="stool" options={{ title: 'お通じの記録', presentation: 'modal' }} />
     </Stack>
   );
 }

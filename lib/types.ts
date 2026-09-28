@@ -95,6 +95,33 @@ export type LogEntry = {
 /** 日付キー(YYYY-MM-DD) → その日の記録 */
 export type Logs = Record<string, LogEntry[]>;
 
+/**
+ * 便の形。ブリストルスケールの7段階（1=コロコロ便 … 7=水様便）。
+ * 数字の並びが「硬い→水っぽい」の順になっていることに意味があるので、値を振り直さない。
+ * 名前と説明は lib/stool.ts の `STOOL_FORMS` が唯一の定義。
+ */
+export type StoolForm = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+
+/**
+ * お通じの記録。1日1件の要約として持つ（1回ごとに1件ではない）。
+ * 設定した時刻に1日ぶんを振り返って入れる形にしてある（DESIGN §15-3）。
+ */
+export type StoolRecord = {
+  /** 回数。**0 は「出なかった」と記録した日**で、未記録日とは別物 */
+  count: number;
+  /** その日の代表的な形。count が 0 のときは null */
+  form: StoolForm | null;
+  /** 最後に記録した時刻(ISO) */
+  at: string;
+};
+
+/**
+ * 日付キー(YYYY-MM-DD) → その日のお通じ。
+ * **記録していない日はキーを作らない。** 0回として埋めると
+ * 「記録を忘れた日」が「出なかった日」に化ける（Logs で未記録日を0gにしないのと同じ理由）。
+ */
+export type StoolLog = Record<string, StoolRecord>;
+
 export type Totals = {
   total: number;
   soluble: number;

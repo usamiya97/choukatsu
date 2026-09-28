@@ -1,16 +1,19 @@
 /**
  * ホーム（最重要画面・DESIGN §7）。
- * 上から: キャラ → 今日のメーター → 2軸の内訳 → 今日の提案1つ → 記録するボタン → 今日の記録。
- * ここに置けるカードは1枚だけ。増やすと「情報が多すぎる」に戻る。
+ * 上から: キャラ → 今日のメーター → 2軸の内訳 → 今日の提案1つ → 記録するボタン → 今日の記録
+ * → お通じの1行。
+ * ここに置けるカードは1枚だけ。増やすと「情報が多すぎる」に戻る
+ * （お通じは**カードにせず1行**にして、繊維のメーターと競わせない・DESIGN §15-3）。
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import GutCharacterLive from '../../components/GutCharacterLive';
 import Meter from '../../components/Meter';
 import AxisBars from '../../components/AxisBars';
 import CoachCard from '../../components/CoachCard';
+import StoolCard from '../../components/StoolCard';
 import QuantitySheet from '../../components/QuantitySheet';
 import Toast from '../../components/Toast';
 import { ChevronRightIcon, PlusIcon } from '../../components/Icons';
@@ -31,13 +34,30 @@ const STAGE_LOOK = {
 } as const;
 
 export default function HomeScreen() {
-  const { gut, coach, coachLead, profile, targets, todayEntries, removeEntry, updateEntryCount } =
-    useStore();
+  const {
+    gut,
+    coach,
+    coachLead,
+    profile,
+    targets,
+    todayEntries,
+    removeEntry,
+    updateEntryCount,
+    todayStool,
+  } = useStore();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [toast, setToast] = useState<string | null>(null);
   // 今日の記録を押したときに開く、量の直しシート
   const [editing, setEditing] = useState<LogEntry | null>(null);
+  /**
+   * お通じの行が「時刻を過ぎたか」を判定するための現在時刻。
+   * **毎分のタイマーは置かない**（キャラのアニメーションが乗った画面を1分ごとに
+   * 再描画する価値がない）。画面に戻ってきたときに取り直すだけにしてある。
+   * 開いたまま時刻を跨いだ場合は端末の通知が受け持つ（lib/reminder.ts）。
+   */
+  const [now, setNow] = useState(() => new Date());
+  useFocusEffect(useCallback(() => setNow(new Date()), []));
 
   const remaining = targets.total - gut.today.total;
   const hint = remainHint(remaining, SERVINGS, {
@@ -157,6 +177,14 @@ export default function HomeScreen() {
         ) : (
           <Text style={styles.empty}>まだ今日の記録はありません</Text>
         )}
+
+        {/* 「入れたもの」の下に「出たもの」。並べて見られることがこの記録の目的（DESIGN §15） */}
+        <StoolCard
+          record={todayStool}
+          reminderAt={profile.stoolReminderAt}
+          now={now}
+          onPress={() => router.push('/stool')}
+        />
       </ScrollView>
 
       <QuantitySheet

@@ -10,8 +10,24 @@
 import { pickCoach } from '../lib/coach';
 import { CAUTIONS, COACH, GUIDELINE_TOTAL, SERVINGS, SWAPS, targetsFor } from '../lib/dataset';
 import { axisName, axisRemainWord, fillRatio, progressWord, remainHint } from '../lib/format';
-import { computeGutState, dateKey, shiftDays } from '../lib/state';
-import type { Logs, Stage } from '../lib/types';
+import { computeGutState, dateKey, idleStageCeiling, shiftDays } from '../lib/state';
+import {
+  compareWeeks,
+  dayLine,
+  previousWeekKey,
+  reviewText,
+  signed,
+  weekReview,
+} from '../lib/review';
+import {
+  DEFAULT_REMINDER_AT,
+  STOOL_FORMS,
+  putStool,
+  stoolRow,
+  stoolWeek,
+  stoolWeekWord,
+} from '../lib/stool';
+import type { Logs, Stage, StoolLog } from '../lib/types';
 
 /** 第1引数で目標総量を変えられる（設定画面で選べる値と同じ） */
 const TARGETS = targetsFor(Number(process.argv[2]) || null);
@@ -81,6 +97,13 @@ const scenarios: { name: string; logs: Logs; estimate?: number | null; prevStage
     logs: logs({ [day(5)]: ['もち麦ごはん'], [day(6)]: ['納豆'], [day(7)]: ['もち麦ごはん'] }),
     prevStage: 3,
   },
+  {
+    // 7日の窓が空になった状態。平均0gで評価すると段階1に落ちるので、
+    // 空白の長さで上限を下げている（DESIGN §2「空白が続いたとき」）
+    name: '⑦ 15日ぶりに開いた日（段階4だった人）',
+    logs: logs({ [day(15)]: ACHIEVED, [day(16)]: ACHIEVED, [day(17)]: ACHIEVED }),
+    prevStage: 4,
+  },
 ];
 
 console.log(`目標: 総量${TARGETS.total}g / ${axisName('soluble')}${TARGETS.soluble}g / ${axisName('insoluble')}${TARGETS.insoluble}g` +
@@ -100,7 +123,10 @@ for (const sc of scenarios) {
   });
 
   console.log(`\n=== ${sc.name} ===`);
-  console.log(`キャラ      段階${gut.stage}（7日平均 ${gut.stageScore.toFixed(1)}g${gut.provisional ? '・診断の推定値' : ''}）`);
+  console.log(
+    `キャラ      段階${gut.stage}（7日平均 ${gut.stageScore.toFixed(1)}g${gut.provisional ? '・診断の推定値' : ''}` +
+      `${gut.fading ? `・空白${gut.idleDays}日で上限${idleStageCeiling(gut.idleDays as number)}に抑制` : ''}）`
+  );
   console.log(`まわりの菌  ${gut.floraDots}個（図鑑 ${gut.flora}/${SERVINGS.length}種類）`);
   console.log(`週の記録    ${gut.weekLogDays}日`);
   console.log(`メーター    ${progressWord(gut.today.total, TARGETS.total)}  [${bar(fillRatio(gut.today.total, TARGETS.total))}]`);
@@ -123,6 +149,61 @@ for (const sc of scenarios) {
       `不溶性${gut.today.insoluble.toFixed(2)}g（水溶の割合 ${share.toFixed(0)}%・理想33%）`
   );
 }
+
+/**
+ * お通じの記録（DESIGN §15）の文言。ホームの行は3状態あるので、時刻の前後で2回見る。
+ * 段階やメーターに一切効かないことは上の出力に出ない（効かせていないので出ようがない）。
+ */
+const stoolAt = (h: number) => new Date(2026, 8, 28, h, 0);
+let stoolLog: StoolLog = {};
+stoolLog = putStool(stoolLog, day(0), 1, 4, '2026-09-28T21:00:00.000Z');
+stoolLog = putStool(stoolLog, day(1), 2, 3, '2026-09-27T21:00:00.000Z');
+stoolLog = putStool(stoolLog, day(3), 0, null, '2026-09-25T21:00:00.000Z');
+
+console.log(`\n=== お通じの記録（時刻 ${DEFAULT_REMINDER_AT}） ===`);
+for (const [name, record, hour] of [
+  ['時刻の前・未記録', null, 9],
+  ['時刻を過ぎて未記録', null, 22],
+  ['記録済み', stoolLog[day(0)], 22],
+] as const) {
+  const row = stoolRow(record, DEFAULT_REMINDER_AT, stoolAt(hour));
+  console.log(`ホームの行    ${name}`);
+  console.log(`              ${row.title}${row.due ? '  ← 催促の色' : ''}`);
+  console.log(`              ${row.sub ?? ''}`);
+}
+console.log(`7日の振り返り  ${stoolWeekWord(stoolWeek(stoolLog, day(0))) ?? '（記録なし）'}`);
+console.log(`形の選択肢    ${STOOL_FORMS.map((f) => f.name).join(' / ')}`);
+
+/**
+ * ふりかえりタブ（DESIGN §16）。日ごとの行と、共有に渡すテキストをそのまま出す。
+ * 共有テキストは端末の外に出る唯一の経路なので、ここで目視できるようにしておく。
+ */
+const reviewLogs = logs({
+  [day(0)]: ACHIEVED,
+  [day(1)]: ['白米ごはん', 'レタス'],
+  [day(3)]: ACHIEVED,
+  [day(4)]: ['もち麦ごはん', '納豆'],
+  [day(8)]: ['白米ごはん'],
+  [day(9)]: ['白米ごはん', '納豆'],
+});
+const thisWeek = weekReview(reviewLogs, stoolLog, SERVINGS, TODAY, TARGETS);
+const lastWeek = weekReview(reviewLogs, stoolLog, SERVINGS, previousWeekKey(TODAY), TARGETS);
+
+console.log(`\n=== ふりかえり（目標${TARGETS.total}g） ===`);
+for (const d of thisWeek.days) console.log(`  ${dayLine(d)}`);
+const diff = compareWeeks(thisWeek, lastWeek);
+console.log(
+  `集計        記録${thisWeek.logDays}日 / 記録した日の平均${Math.round(thisWeek.avgTotal)}g / ` +
+    `届いた日${thisWeek.reachedDays}日`
+);
+console.log(
+  `前の7日比   ${
+    diff.avgTotal === null
+      ? '（前の7日に記録が無いのでくらべない）'
+      : `平均 ${signed(diff.avgTotal, 'g')} / 届いた日 ${signed(diff.reachedDays ?? 0, '日')}`
+  }`
+);
+console.log(`\n--- 共有テキスト ---\n${reviewText(thisWeek, lastWeek, TARGETS)}`);
 
 function bar(ratio: number): string {
   const n = Math.round(ratio * 20);

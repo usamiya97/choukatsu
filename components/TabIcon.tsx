@@ -1,5 +1,5 @@
 /**
- * タブのアイコン。4枚しかないので自前のSVGで持つ。
+ * タブのアイコン。5枚しかないので自前のSVGで持つ。
  *
  * ルール（pro-rules: Icons & Visual Elements）:
  *  - 絵文字は使わない（端末のフォント依存で見え方が変わり、色も制御できない）
@@ -12,7 +12,7 @@ import type { ColorValue } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { icon } from '../lib/theme';
 
-export type TabName = 'home' | 'log' | 'dex' | 'settings';
+export type TabName = 'home' | 'log' | 'review' | 'dex' | 'settings';
 
 const STROKE = 1.8;
 
@@ -45,6 +45,12 @@ export default function TabIcon({
           <Path d="M12 6v12" {...common} />
           <Path d="M6 12h12" {...common} />
           <Circle cx={12} cy={12} r={9} {...common} />
+        </>
+      ) : name === 'review' ? (
+        <>
+          {/* 伸びる棒。日別の記録を並べて見る画面（グラフではなく表だが、意味は同じ） */}
+          <Path d="M5 19h14" {...common} />
+          <Path d="M8.5 19v-4M12 19v-8M15.5 19v-6" {...common} />
         </>
       ) : name === 'dex' ? (
         <>

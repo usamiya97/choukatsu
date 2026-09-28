@@ -9,22 +9,28 @@ import React, { useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import ReminderPicker from '../../components/ReminderPicker';
 import { CheckIcon, ChevronRightIcon } from '../../components/Icons';
 import { DEFAULT_TARGET_TOTAL, DIAGNOSIS, GUIDELINE_TOTAL, TARGET_OPTIONS, findServing, labelsForName } from '../../lib/dataset';
 import { looksLikeApiKey } from '../../lib/apikey';
 import { ATTRIBUTION, axisName } from '../../lib/format';
+import { DEFAULT_REMINDER_AT, reminderLabel, stoolWeekWord } from '../../lib/stool';
 import { useStore } from '../../lib/store';
 import { stageThresholds } from '../../lib/state';
 import { SOLUBLE_CAP_G } from '../../lib/targets';
 import { colors, elevation, hit, radius, space, type } from '../../lib/theme';
 
 export default function SettingsScreen() {
-  const { profile, updateProfile, resetAll, gut, targets, hasApiKey, setApiKey } = useStore();
+  const { profile, updateProfile, resetAll, gut, targets, hasApiKey, setApiKey, stoolWeek, setStoolReminder } =
+    useStore();
   const [keyInput, setKeyInput] = useState('');
   const [saving, setSaving] = useState(false);
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const q10 = DIAGNOSIS.questions.find((q) => q.id === 'q10');
+  // 保存値が壊れていても「null にお聞きします」と書かないよう、読める時刻かどうかで分ける
+  const stoolAtLabel = reminderLabel(profile.stoolReminderAt);
+  const stoolWeekLine = stoolWeekWord(stoolWeek);
 
   const toggle = (names: string[]) => {
     const labels = names.flatMap(labelsForName);
@@ -90,6 +96,57 @@ export default function SettingsScreen() {
           言われている配分です。{axisName('soluble', false)}側は {SOLUBLE_CAP_G}g で打ち止めにしています
           （毎日狙える範囲に留めるため）。
         </Text>
+      </Card>
+
+      <Card
+        title="お通じの記録"
+        lead={stoolAtLabel ? `${stoolAtLabel} にお聞きします` : '時刻を決めると、その時刻にお聞きします'}
+      >
+        <ReminderPicker
+          value={profile.stoolReminderAt}
+          // 時刻だけ変える。通知を出すかどうかは下のトグルの状態を引き継ぐ
+          onChange={(at) => void setStoolReminder(at, profile.stoolNotify)}
+          allowNone
+        />
+        <Pressable
+          style={({ pressed }) => [
+            styles.toggle,
+            profile.stoolNotify && styles.toggleOn,
+            pressed && styles.togglePressed,
+          ]}
+          onPress={async () => {
+            if (profile.stoolNotify) {
+              await setStoolReminder(profile.stoolReminderAt, false);
+              return;
+            }
+            // 時刻を決めていない人がここから入ったときは既定の時刻を当てる
+            const ok = await setStoolReminder(profile.stoolReminderAt ?? DEFAULT_REMINDER_AT, true);
+            if (!ok) {
+              Alert.alert(
+                '通知を出せませんでした',
+                'この端末では通知が使えないか、通知が切られています。アプリを開いたときにホームでお知らせします。'
+              );
+            }
+          }}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: profile.stoolNotify }}
+          accessibilityLabel="その時刻に端末の通知を出す"
+        >
+          <Text style={[styles.toggleText, profile.stoolNotify && styles.toggleTextOn]}>
+            その時刻に通知を出す
+          </Text>
+          {profile.stoolNotify ? (
+            <View style={styles.toggleMark}>
+              <CheckIcon color="#FFFFFF" />
+              <Text style={styles.toggleMarkText}>オン</Text>
+            </View>
+          ) : null}
+        </Pressable>
+        <Text style={styles.small}>
+          通知を切っていても、時刻を過ぎるとホームの行でお知らせします。
+          回数と便の形だけを記録します（体調そのものの判断はしません）。
+        </Text>
+        {stoolWeekLine ? <Text style={styles.body}>{stoolWeekLine}</Text> : null}
       </Card>
 
       <Card title="苦手な食べもの" lead="選んだものは提案に出しません">

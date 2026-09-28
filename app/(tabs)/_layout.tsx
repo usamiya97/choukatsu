@@ -34,6 +34,13 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="review"
+        options={{
+          title: 'ふりかえり',
+          tabBarIcon: ({ color }) => <TabIcon name="review" color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="dex"
         options={{
           title: '図鑑',

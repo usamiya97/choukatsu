@@ -10,14 +10,15 @@
 ## Tech Stack
 
 TypeScript (strict) / Expo SDK 57 + Expo Router / React Native 0.86 / react-native-svg /
-AsyncStorage / テストは `node:test` + tsx。**ESLint・Prettier・CI は未設定**（`npx expo lint` は設定がないため使わない）。
+AsyncStorage / expo-secure-store / expo-notifications（お通じの記録をうながす時刻・§15）/
+テストは `node:test` + tsx。**ESLint・Prettier・CI は未設定**（`npx expo lint` は設定がないため使わない）。
 
 ## Build & Run
 
 ```bash
 npm start           # prestart で build:data が走ってから Expo 起動
 npm run build:data  # data/*.csv → data/generated/*.json ＋ 相互参照の検証
-npm test            # 131件・端末不要
+npm test            # 168件・端末不要
 npm run typecheck   # tsc --noEmit
 npm run dryrun      # 6シナリオ分の画面文言と数字を表示（引数で目標値を変えられる）
 npm run dryrun:parse # 自由文入力が辞書だけでどこまで解けるか（LLMを呼ばない）
@@ -44,15 +45,20 @@ data/*.csv → (build時) data/generated/*.json → lib/dataset.ts
 ```
 app/(tabs)/index.tsx   ホーム（キャラ＋メーター＋提案1つ）
 app/(tabs)/log.tsx     記録（よく食べるもの／カテゴリ／検索）
+app/(tabs)/review.tsx  ふりかえり（日ごとの繊維とお通じ・前の7日との比較・テキスト共有）
 app/(tabs)/dex.tsx     図鑑（減らない軸）
 app/(tabs)/settings.tsx 設定（目標値・苦手な食べもの・出典・削除）
-app/onboarding.tsx     初回診断10問（スキップ可）
+app/onboarding.tsx     初回診断10問（スキップ可）＋ お通じを記録する時刻を1つ聞く
+app/stool.tsx          お通じの記録（回数＋便の形7段階）。**キャラには効かせない**
 app/food/[label].tsx   食品詳細（根拠の開示）。ルートキーは code ではなく label
 lib/types.ts           語彙の定義。まずここを読む
 lib/state.ts           7日平均・ヒステリシス・段階の閾値（中核）
 lib/targets.ts         2軸の目標(1:2)と偏り判定
 lib/format.ts          数値→日本語。小数点を出さない
 lib/coach.ts           提案の選択（LLMは使わない・カタログ37件から決定論的に選ぶ）
+lib/stool.ts           お通じの語彙・数え方・言い方＋うながす時刻（純粋関数・DESIGN §15）
+lib/review.ts          週の振り返り（直近7日ローリング・前週比・共有テキスト・DESIGN §16）
+lib/reminder.ts        通知を触る唯一の場所。使えない端末では動かないだけで落とさない
 lib/lexicon.ts         自由文→プリセットの辞書（549キーを最長一致で走査・LLMなし）
 lib/mealparse.ts       自由文のLLM名寄せ。クライアントは注入する（DESIGN §14）
 lib/coachllm.ts        コーチ提案のLLM化。カタログから選ばせるだけで文は作らせない
@@ -67,10 +73,17 @@ scripts/expand-servings.mjs  食品の追加（繊維量は成分表から計算
 
 - **数値はデータから決定論的に出す。LLMに計算させない**
 - 段階は7日平均・ヒステリシス1.5g。**今日は平均に入れない**
+- 7日の窓が空（空白8日以上）になったら平均で段階を決めない。**空白1週ごとに上限を1段**下げる
+  （`idleStageCeiling`）。前回の段階から引く形にすると二重に落ちる。DESIGN §2
 - **未記録日を0として数えない。`streak` を実装しない**（切れるものを作らない）
 - 提案は1日1つ。同じ日は何度開いても同じもの
+- **お通じはキャラの段階に影響させない。** キャラは食物繊維だけで育つ（体の反応を罰しない）
+- お通じの **0回（出なかった）と未記録を区別する**。平均や「1日あたり」を出さない
+- 記録をうながす時刻は**選択式**（自由入力しない）。通知は前提にしない（無くても催促の行が出る）
 - 苦手（診断q10）と軸ごとの禁止リストを必ず提案から外す
 - 小数点を出さない
+- 平均は**記録した日だけ**で出す（未記録日を0gとして割らない）。週の振り返りも同じ
+- 記録を端末の外に出すのは共有テキストだけ。**数字を外に出すときは出典を必ず添える**
 - 軸の呼び名は `lib/format.ts` の `AXIS`／`axisName` 経由。「菌のごはん（水溶性）」の併記形
   （2026-09-26まではニックネームだけ。DESIGN §5-2 に方針転換の理由あり）
 - **LLMに数値を返させない。** 出力スキーマに g も繊維量も置かない（`PARSE_SCHEMA`）

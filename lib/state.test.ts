@@ -6,12 +6,15 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import {
+  STAGE_IDLE_STEP_DAYS,
   computeGutState,
   dateKey,
   dayTotals,
   daysSinceLastLog,
   floraCount,
   floraDots,
+  idleDaysBefore,
+  idleStageCeiling,
   indexServings,
   lastNDays,
   recentMissStreak,
@@ -265,4 +268,99 @@ test('目標18gを7日続けた人は段階4（段階5に伸びしろが残る�
   const state = computeGutState(logsWith(week), TODAY, servings, 4);
   assert.ok(state.stageScore >= 18, `7日平均 ${state.stageScore.toFixed(1)}g`);
   assert.equal(state.stage, 4);
+});
+
+/* ─── 空白が続いたときの段階（2026-09-29） ───────────────────────
+ * 「記録が無い＝食物繊維をとっていない」として落とすが、崖を作らない。
+ * ここが緩むと段階4の人が8日目に段階1まで落ちる（この挙動を実測して直した）。
+ */
+
+test('空白8日目から段階の上限が下がりはじめる（7日以内は下げない）', () => {
+  for (const idle of [0, 1, 5, 7]) {
+    assert.equal(idleStageCeiling(idle), 5, `空白${idle}日で上限が下がっている`);
+  }
+  assert.equal(idleStageCeiling(8), 4);
+  assert.equal(idleStageCeiling(14), 4, '2週目の途中ではまだ下げない');
+  assert.equal(idleStageCeiling(15), 3);
+  assert.equal(idleStageCeiling(22), 2);
+  assert.equal(idleStageCeiling(29), 1, '空白4週間で段階1');
+  assert.equal(idleStageCeiling(365), 1, '1より下は無い');
+});
+
+test('空白の段階下げは二重に効かない（下がった段階から毎回引かない）', () => {
+  // 段階は保存される値なので、min(prev, 上限) が何度当てても同じ結果になることが要点。
+  // 「prev − N段」にすると prev4 が 8日目に3、15日目に1 まで落ちる
+  let stage: Stage = 4;
+  const ladder: [number, Stage][] = [
+    [8, 4],
+    [15, 3],
+    [22, 2],
+    [29, 1],
+  ];
+  for (const [idle, expected] of ladder) {
+    stage = Math.min(stage, idleStageCeiling(idle)) as Stage;
+    assert.equal(stage, expected, `空白${idle}日`);
+    // 同じ日に何度描き直しても動かない
+    assert.equal(Math.min(stage, idleStageCeiling(idle)), expected, `空白${idle}日の再適用`);
+  }
+});
+
+test('もともと低い段階の人ほど落ちるのが遅い（積み上げが少ない人から取り上げない）', () => {
+  assert.equal(Math.min(5, idleStageCeiling(8)), 4, '段階5の人は8日目に1つ下がる');
+  assert.equal(Math.min(2, idleStageCeiling(8)), 2, '段階2の人はまだ下がらない');
+  assert.equal(Math.min(2, idleStageCeiling(22)), 2, '段階2の人が下がるのは22日目の上限2から');
+  assert.equal(Math.min(2, idleStageCeiling(29)), 1);
+});
+
+test('空白は今日を数に入れない（今日いくら記録しても過去の空白は埋まらない）', () => {
+  const logs = logsWith({ [day(10)]: ['もち麦ごはん'], [TODAY]: ['納豆'] });
+  assert.equal(idleDaysBefore(logs, TODAY), 10);
+  assert.equal(daysSinceLastLog(logs, TODAY), 0, '復帰トリガー側は今日を見る（役割が違う）');
+  assert.equal(idleDaysBefore({}, TODAY), null, '記録が無ければ null');
+  assert.equal(idleDaysBefore(logsWith({ [TODAY]: ['納豆'] }), TODAY), null, '初日は空白ではない');
+});
+
+test('9日ぶりに開いた日は段階1まで落ちず、1つだけ下がる', () => {
+  // 以前は 7日の窓が空になった瞬間に平均0gで評価していたので、段階4から段階1に落ちていた
+  const logs = logsWith({ [day(9)]: ['もち麦ごはん'], [day(10)]: ['もち麦ごはん'], [day(11)]: ['もち麦ごはん'] });
+  const gut = computeGutState(logs, TODAY, servings, 4, null, 25);
+  assert.equal(gut.stage, 4, '空白9日では上限4。段階4の人はまだ下がらない');
+  assert.equal(gut.fading, true, '平均ではなく空白の長さで抑えている');
+  assert.equal(gut.idleDays, 9);
+
+  // 3週間空けば段階3まで
+  const long = logsWith({ [day(20)]: ['もち麦ごはん'], [day(21)]: ['もち麦ごはん'], [day(22)]: ['もち麦ごはん'] });
+  assert.equal(computeGutState(long, TODAY, servings, 4, null, 25).stage, 3);
+});
+
+test('久しぶりに記録した当日に段階を落とさない（今日の1品で7日平均を作らない）', () => {
+  // レタス1枚(0.33g)を記録した瞬間に段階1になっては、戻ってきた人を罰することになる
+  const base = { [day(9)]: ['もち麦ごはん'], [day(10)]: ['もち麦ごはん'], [day(11)]: ['もち麦ごはん'] };
+  const back = computeGutState(logsWith({ ...base, [TODAY]: ['レタス'] }), TODAY, servings, 4, null, 25);
+  assert.equal(back.stage, 4);
+  assert.equal(back.fading, true);
+
+  // 翌日には今日が窓に入り、実測の平均に戻る（レタスだけの日なので段階は下がる）
+  const tomorrow = shiftDays(TODAY, 1);
+  const next = computeGutState(logsWith({ ...base, [TODAY]: ['レタス'] }), tomorrow, servings, 4, null, 25);
+  assert.equal(next.fading, false, '窓に記録が入ったら平均で決める');
+  assert.ok(next.stage < 4, '実測が低ければ平均どおりに下がる');
+});
+
+test('一度も記録していない人（診断だけ）は空白で落とさない', () => {
+  // 推定値で暫定表示している段階を、記録していないことを理由に下げない（§1-3）
+  const gut = computeGutState({}, TODAY, servings, 3, 12, 25);
+  assert.equal(gut.fading, false);
+  assert.equal(gut.idleDays, null);
+  assert.equal(gut.provisional, true);
+  assert.equal(gut.stage, 3, '推定12gは段階3の範囲（5.5〜12.5g）');
+});
+
+test('7日の窓に1日でも記録があれば、これまでどおり平均だけで決まる', () => {
+  // 空白の上限は「窓が空のとき」だけの仕組み。通常の抜けには一切触らない
+  const logs = logsWith({ [day(STAGE_IDLE_STEP_DAYS)]: ['もち麦ごはん', 'もち麦ごはん', 'もち麦ごはん'] });
+  const gut = computeGutState(logs, TODAY, servings, 4, null, 25);
+  assert.equal(gut.fading, false);
+  assert.equal(gut.idleDays, STAGE_IDLE_STEP_DAYS);
+  assert.ok(Math.abs(gut.stageScore - mochi.total * 3) < 1e-9, '記録がある1日だけの平均');
 });

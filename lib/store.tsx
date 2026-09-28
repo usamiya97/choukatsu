@@ -10,22 +10,26 @@ import type { Learned } from './lexicon';
 import { coachCandidates, evidenceOf, pickCoach, resolveTrigger, type CoachSuggestion } from './coach';
 import { llmCoach } from './coachllm';
 import { computeGutState, dateKey, daysSinceLastLog, indexServings, shiftDays, type GutState } from './state';
+import { putStool, removeStool, stoolWeek as stoolWeekOf, type StoolWeek } from './stool';
+import { cancelReminder, ensureReminderPermission, scheduleReminder } from './reminder';
 import {
   EMPTY_PROFILE,
   EMPTY_UI,
   clearAll,
   loadLogs,
   loadProfile,
+  loadStool,
   loadUi,
   saveLogs,
   saveProfile,
+  saveStool,
   loadLearned,
   saveLearned,
   saveUi,
   type Profile,
   type UiState,
 } from './storage';
-import type { LogEntry, Logs, Serving, Targets, Totals } from './types';
+import type { LogEntry, Logs, Serving, StoolForm, StoolLog, StoolRecord, Targets, Totals } from './types';
 
 type Store = {
   ready: boolean;
@@ -61,6 +65,22 @@ type Store = {
    * 確認画面で選んでから addEntry を呼ぶ
    */
   parseText: (text: string) => Promise<ParseResult>;
+
+  /* お通じ（DESIGN §15）。食物繊維とは別の記録で、**キャラには効かせない** */
+  stool: StoolLog;
+  /** 今日のお通じ。未記録は null（0回と区別する） */
+  todayStool: StoolRecord | null;
+  stoolWeek: StoolWeek;
+  /** 今日のぶんを書く（1日1件・上書き） */
+  setStool: (count: number, form: StoolForm | null) => void;
+  /** 今日のぶんを消す。0回として残さない */
+  clearStool: () => void;
+  /**
+   * 記録をうながす時刻と通知の設定。
+   * 返り値は**実際に通知を出せるようになったか**（許可が下りなければ false で、
+   * 時刻だけ保存してホームの行で催促する）
+   */
+  setStoolReminder: (at: string | null, notify: boolean) => Promise<boolean>;
 };
 
 const StoreContext = createContext<Store | null>(null);
@@ -70,6 +90,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [logs, setLogs] = useState<Logs>({});
   const [profile, setProfile] = useState<Profile>(EMPTY_PROFILE);
   const [ui, setUi] = useState<UiState>(EMPTY_UI);
+  const [stool, setStoolLog] = useState<StoolLog>({});
   // 自由文の学習辞書と、BYOKのAPIキー。どちらも無くてもアプリは動く
   const [learned, setLearned] = useState<Learned>({});
   const [apiKey, setApiKeyState] = useState<string | null>(null);
@@ -78,18 +99,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     (async () => {
-      const [l, p, u, lex, key] = await Promise.all([
+      const [l, p, u, lex, key, st] = await Promise.all([
         loadLogs(),
         loadProfile(),
         loadUi(),
         loadLearned(),
         loadApiKey(),
+        loadStool(),
       ]);
       setLogs(l);
       setProfile(p);
       setUi(u);
       setLearned(lex);
       setApiKeyState(key);
+      setStoolLog(st);
       setReady(true);
     })();
   }, []);
@@ -180,24 +203,90 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [logs, today, persistLogs]
   );
 
-  const updateProfile = useCallback(
-    (patch: Partial<Profile>) => {
-      const next = { ...profile, ...patch };
-      setProfile(next);
+  /**
+   * プロフィールの一部を直す。
+   * **前の値から作る形（関数形）にしてあるのが要点。** 同じタイミングで2回呼ぶ場面があり
+   * （初回診断の結果を書いた直後に、お通じの時刻を書く）、古い profile を掴んだまま
+   * 上書きすると先の patch が消える。
+   */
+  const updateProfile = useCallback((patch: Partial<Profile>) => {
+    setProfile((prev) => {
+      const next = { ...prev, ...patch };
       void saveProfile(next);
-    },
-    [profile]
-  );
+      return next;
+    });
+  }, []);
 
   const resetAll = useCallback(() => {
     setLogs({});
     setProfile(EMPTY_PROFILE);
     setUi(EMPTY_UI);
+    setStoolLog({});
     // 学習辞書も消す（clearAll が保存側を消すので、画面側の状態も合わせる）。
     // APIキーは消さない。「データを消す」は記録を消す操作で、設定の作り直しまで求めていない
     setLearned({});
+    // 時刻の設定も消えるので、OS側に残った予約も止める（消したのに鳴るのを防ぐ）
+    void cancelReminder();
     void clearAll();
   }, []);
+
+  /* ─── お通じ（DESIGN §15） ───────────────────────────────
+   * 食物繊維の記録とは**別の入れ物**にしてある。混ぜない理由は2つ:
+   *  - キャラの段階（7日平均）に混ざると、体の反応でキャラが弱る＝罰になる
+   *  - 「入れたもの」と「出たもの」を並べて見るのが目的なので、別軸のまま持つ必要がある
+   */
+
+  const todayStool = stool[today] ?? null;
+  const stoolWeek = useMemo(() => stoolWeekOf(stool, today), [stool, today]);
+
+  const setStool = useCallback((count: number, form: StoolForm | null) => {
+    // 日付を跨いで開いていた場合に前日へ書かない（addEntry と同じ扱い）
+    const key = dateKey();
+    setToday(key);
+    setStoolLog((prev) => {
+      const next = putStool(prev, key, count, form);
+      void saveStool(next);
+      return next;
+    });
+  }, []);
+
+  const clearStool = useCallback(() => {
+    setStoolLog((prev) => {
+      const next = removeStool(prev, today);
+      void saveStool(next);
+      return next;
+    });
+  }, [today]);
+
+  const setStoolReminder = useCallback(
+    async (at: string | null, notify: boolean): Promise<boolean> => {
+      let on = false;
+      if (at && notify) {
+        // 許可 → 予約 の順。どちらかが通らなければ通知は無しにして、時刻だけ保存する
+        on = (await ensureReminderPermission()) && (await scheduleReminder(at));
+      }
+      if (!on) await cancelReminder();
+      updateProfile({ stoolReminderAt: at, stoolNotify: on });
+      return on;
+    },
+    [updateProfile]
+  );
+
+  /**
+   * 起動時に予約を貼り直す。OS側に残る予約なので普段は不要だが、
+   * **許可が後から切られた／OSが予約を落とした**ときにここで戻る。
+   * 許可が無くなっていたら profile 側も false に直す（設定画面が嘘をつかないように）。
+   */
+  const reminderSynced = useRef(false);
+  useEffect(() => {
+    if (!ready || reminderSynced.current) return;
+    reminderSynced.current = true;
+    if (!profile.stoolNotify || !profile.stoolReminderAt) return;
+    void (async () => {
+      const ok = (await ensureReminderPermission()) && (await scheduleReminder(profile.stoolReminderAt as string));
+      if (!ok) updateProfile({ stoolNotify: false });
+    })();
+  }, [ready, profile.stoolNotify, profile.stoolReminderAt, updateProfile]);
 
   /** 直近30日の記録頻度。図鑑ではなく「よく食べるもの」用なので古い記録は見ない */
 
@@ -333,6 +422,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     hasApiKey: apiKey !== null,
     setApiKey,
     parseText,
+    stool,
+    todayStool,
+    stoolWeek,
+    setStool,
+    clearStool,
+    setStoolReminder,
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
