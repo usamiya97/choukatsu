@@ -10,7 +10,7 @@
 ```bash
 npm install                # 初回。peer依存の衝突があるときは --legacy-peer-deps
 npm start                  # data/generated を作ってから Expo を起動する（prestart）
-npm test                   # ロジックのテスト（117件・端末不要）
+npm test                   # ロジックのテスト（131件・端末不要）
 npm run typecheck          # tsc --noEmit
 npm run dryrun             # 画面に出る文言と数字を6シナリオぶん表示（端末不要）
 npm run dryrun:parse       # 自由文入力が辞書だけでどこまで解けるか（LLMを呼ばない）
@@ -29,12 +29,14 @@ app/                     Expo Router
 ├── (tabs)/dex.tsx       図鑑（減らない軸）
 ├── (tabs)/settings.tsx  設定（苦手な食べもの・出典・データ削除）
 ├── onboarding.tsx       初回診断10問（スキップ可）
+├── compose.tsx          自由文で食事を書いて記録（読み取り→確認→記録）
 └── food/[label].tsx     食品詳細（根拠の開示）
 
 components/              GutCharacter(静止SVG) / GutCharacterLive(動き) / Meter / AxisBars / AxisLegend
                          CoachCard / ServingChip / QuantitySheet / QuantityStepper / Toast / TabIcon / Icons
 lib/                     state(状態モデル) targets(目標と2軸の比) coach(提案選択) format(表示) diagnosis(採点)
-                         lexicon(自由文→プリセットの辞書) mealparse(LLM名寄せ層・呼び出しは注入)
+                         lexicon(自由文→プリセットの辞書) mealparse(LLM名寄せ) coachllm(提案のLLM選択)
+                         safety(禁止語・数字の検査) apikey(BYOKの保管) anthropic(SDKの唯一の窓口)
                          dataset(生成JSONの入口) store(Context) storage(AsyncStorage)
                          theme(デザイントークン) motion(アニメ・触覚)
 scripts/build-data.mjs   CSV → JSON ＋ 相互参照の検証
@@ -59,6 +61,9 @@ data/                    出典データ。詳細は data/README.md
 | 軸の呼び名は「菌のごはん（水溶性）」。ニックネーム主役＋専門語を括弧で1度 | `lib/format.ts` `AXIS` / `axisName` |
 | 自由文入力は辞書で解けたらLLMを呼ばない。呼び出し回数＝費用 | `lib/lexicon.ts` `resolveMeal` |
 | LLMに繊維量を計算させない。出力スキーマにg/繊維量のフィールドを置かない | `lib/mealparse.ts` `PARSE_SCHEMA` |
+| コーチはカタログから選ばせるだけ。文は作らせない。禁止語と数字を実行時に弾く | `lib/coachllm.ts` / `lib/safety.ts` |
+| APIキーはバンドルに入れない。端末のセキュアストレージだけ | `lib/apikey.ts` |
+| 読み取り結果はそのまま記録しない。必ず確認を挟む | `app/compose.tsx` |
 | プリセットに無い label は記録に入れない。壊れた返りで例外を投げない | `lib/mealparse.ts` `resolveParsed` |
 | 出典を画面に出す（成分表の利用条件） | `app/(tabs)/settings.tsx` / `app/food/[label].tsx` |
 | 色・余白・文字サイズは必ずトークン経由。コントラスト比はテストで固定 | `lib/theme.ts` / `lib/theme.test.ts` |

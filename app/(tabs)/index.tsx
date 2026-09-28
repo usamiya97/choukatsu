@@ -31,7 +31,8 @@ const STAGE_LOOK = {
 } as const;
 
 export default function HomeScreen() {
-  const { gut, coach, profile, targets, todayEntries, removeEntry, updateEntryCount } = useStore();
+  const { gut, coach, coachLead, profile, targets, todayEntries, removeEntry, updateEntryCount } =
+    useStore();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [toast, setToast] = useState<string | null>(null);
@@ -106,6 +107,7 @@ export default function HomeScreen() {
         {coach ? (
           <CoachCard
             suggestion={coach}
+            lead={coachLead}
             onPress={
               coach.item.targetFood && findServing(coach.item.targetFood)
                 ? () => router.push(`/food/${encodeURIComponent(coach.item.targetFood as string)}`)

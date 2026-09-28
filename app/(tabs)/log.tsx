@@ -1,6 +1,6 @@
 /**
  * 記録画面（DESIGN §7・入力3段階）。
- * よく食べるもの → カテゴリ → 入力して探す。
+ * まとめて書く（自由文） → よく食べるもの → カテゴリ → 入力して探す。
  * g入力は置かない。常用量のタップと量の選択だけで完結させる（プリセットだけで3指標に到達できることは検算済み）。
  *
  * 記録した結果は**重ねたトースト**で返す（行を挿入すると、次に押そうとした品目が下にずれる）。
@@ -91,6 +91,18 @@ export default function LogScreen() {
           </View>
           <Text style={styles.summarySub}>今日 {todayEntries.length}件 記録しました</Text>
         </View>
+
+        {/* 1品ずつ探すより速い経路。検索欄の上に置いて、先に目に入るようにする */}
+        <Pressable
+          style={({ pressed }) => [styles.compose, pressed && styles.composePressed]}
+          onPress={() => router.push('/compose')}
+          accessibilityRole="button"
+          accessibilityLabel="食べたものをまとめて書いて記録する"
+          android_ripple={{ color: colors.tapPressed }}
+        >
+          <Text style={styles.composeText}>まとめて書く</Text>
+          <Text style={styles.composeSub}>「朝は納豆ごはんとサラダ」のように書けます</Text>
+        </Pressable>
 
         <View style={styles.searchRow}>
           <TextInput
@@ -213,6 +225,18 @@ const styles = StyleSheet.create({
   summarySub: { ...type.small },
   track: { height: 10, borderRadius: radius.pill, backgroundColor: colors.accentSoft, overflow: 'hidden' },
   fill: { height: '100%', backgroundColor: colors.accentStrong, borderRadius: radius.pill },
+  compose: {
+    minHeight: hit.min,
+    justifyContent: 'center',
+    gap: 2,
+    backgroundColor: colors.accentSoft,
+    borderRadius: radius.md,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.md,
+  },
+  composePressed: { backgroundColor: colors.tapPressed },
+  composeText: { ...type.bodyStrong, color: colors.accentStrong },
+  composeSub: { ...type.tiny },
   searchRow: { position: 'relative', justifyContent: 'center' },
   search: {
     minHeight: hit.min,

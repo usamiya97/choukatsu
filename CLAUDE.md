@@ -17,7 +17,7 @@ AsyncStorage / テストは `node:test` + tsx。**ESLint・Prettier・CI は未�
 ```bash
 npm start           # prestart で build:data が走ってから Expo 起動
 npm run build:data  # data/*.csv → data/generated/*.json ＋ 相互参照の検証
-npm test            # 117件・端末不要
+npm test            # 131件・端末不要
 npm run typecheck   # tsc --noEmit
 npm run dryrun      # 6シナリオ分の画面文言と数字を表示（引数で目標値を変えられる）
 npm run dryrun:parse # 自由文入力が辞書だけでどこまで解けるか（LLMを呼ばない）
@@ -54,7 +54,11 @@ lib/targets.ts         2軸の目標(1:2)と偏り判定
 lib/format.ts          数値→日本語。小数点を出さない
 lib/coach.ts           提案の選択（LLMは使わない・カタログ37件から決定論的に選ぶ）
 lib/lexicon.ts         自由文→プリセットの辞書（549キーを最長一致で走査・LLMなし）
-lib/mealparse.ts       LLM名寄せ層。クライアントは注入する。実呼び出しは未接続（DESIGN §14）
+lib/mealparse.ts       自由文のLLM名寄せ。クライアントは注入する（DESIGN §14）
+lib/coachllm.ts        コーチ提案のLLM化。カタログから選ばせるだけで文は作らせない
+lib/safety.ts          禁止語と数字の検査。カタログのビルド検査と実行時検査で共有する
+lib/apikey.ts          BYOKの保管（expo-secure-store）。バンドルに鍵を入れない
+lib/anthropic.ts       SDKを触る唯一の場所。プロキシに移すときはここだけ差し替える
 lib/theme.ts           デザイントークン。生の色・生の数値を書かない唯一の出口
 scripts/expand-servings.mjs  食品の追加（繊維量は成分表から計算・手入力しない）
 ```
@@ -71,6 +75,10 @@ scripts/expand-servings.mjs  食品の追加（繊維量は成分表から計算
   （2026-09-26まではニックネームだけ。DESIGN §5-2 に方針転換の理由あり）
 - **LLMに数値を返させない。** 出力スキーマに g も繊維量も置かない（`PARSE_SCHEMA`）
 - 自由文入力は辞書で解けたらLLMを呼ばない（呼び出し回数＝費用）
+- **コーチは1日1回だけ呼ぶ**（`UiState.llmCoach.date`）。何度開いても課金しない
+- **LLMが書いた文に数字を許さない。** 数値を含む主張はカタログ／データから
+- APIキーはバンドルに入れない。`app.json` の extra や `EXPO_PUBLIC_*` は使わない
+- 読み取り結果をそのまま記録しない。必ず確認を挟む
 - `method`（分析法）が違う食品同士で置き換えを出さない
 - 動きは transform/opacity のみ。「視差効果を減らす」ONで全部止める
 - 絵文字をアイコンに使わない（自前SVG・線幅1.8）。ライト固定

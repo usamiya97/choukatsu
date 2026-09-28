@@ -5,7 +5,10 @@
  *  - **1日1つだけ出す。** 複数出すと「情報が多すぎる」を自分で再生産する
  *  - 同じ日に何度アプリを開いても同じ提案が出る（日付シードで決定論的に選ぶ）
  *  - ユーザーが「無理」と答えた食品(q10)と、軸ごとの禁止リストは必ず落とす
- *  - LLMは使わない。カタログから選ぶだけ（数値はデータ由来のまま）
+ *  - **このファイルはLLMを使わない。** カタログから決定論的に選ぶだけ
+ *  - APIキーがあるときは lib/coachllm.ts が「どれを出すか」をLLMに選ばせるが、
+ *    **選ばせるだけで文は作らせない**（数値を含む主張はカタログのまま）。
+ *    候補の絞り込みは coachCandidates を共有するので、禁止リストは両方に効く
  */
 import { bannedLabels } from './format';
 import { balanceOf } from './targets';
@@ -140,22 +143,32 @@ function isRepeat(ctx: CoachContext, picked: CoachSuggestion): boolean {
   return recentlyShown(ctx).has(picked.item.id);
 }
 
-function pickFor(ctx: CoachContext, trigger: CoachTrigger): CoachSuggestion | null {
+/**
+ * トリガーに対する候補（苦手と禁止を落としたあと）。
+ * **LLMに渡す候補もこれを使う**（別に組むと禁止リストの適用が片方だけ漏れる）。
+ */
+export function coachCandidates(ctx: CoachContext, trigger: CoachTrigger): CoachItem[] {
   const axis = AXIS_OF_TRIGGER[trigger] ?? 'total';
   const banned = bannedLabels(ctx.cautions, axis);
   const excluded = new Set(ctx.excludedFoods ?? []);
   const byLabel = indexServings(ctx.servings);
+  // 苦手（q10）と軸ごとの禁止を落とす。display_name で書かれている行もあるので両方で照合する
+  return ctx.catalog
+    .filter((c) => c.trigger === trigger)
+    .filter((c) => {
+      if (!c.targetFood) return true;
+      const label = resolveLabel(c.targetFood, byLabel, ctx.servings);
+      if (!label) return true;
+      return !excluded.has(label) && !banned.has(label);
+    });
+}
+
+function pickFor(ctx: CoachContext, trigger: CoachTrigger): CoachSuggestion | null {
+  const byLabel = indexServings(ctx.servings);
   const eatenToday = new Set((ctx.logs[ctx.todayKey] ?? []).map((e) => e.label));
   const known = uniqueLabels(ctx.logs);
 
-  let pool = ctx.catalog.filter((c) => c.trigger === trigger);
-  // 苦手（q10）と軸ごとの禁止を落とす。display_name で書かれている行もあるので両方で照合する
-  pool = pool.filter((c) => {
-    if (!c.targetFood) return true;
-    const label = resolveLabel(c.targetFood, byLabel, ctx.servings);
-    if (!label) return true;
-    return !excluded.has(label) && !banned.has(label);
-  });
+  const pool = coachCandidates(ctx, trigger);
   if (!pool.length) return null;
 
   const swapOf = (c: CoachItem) => findSwap(c, ctx.swaps, byLabel, ctx.servings);

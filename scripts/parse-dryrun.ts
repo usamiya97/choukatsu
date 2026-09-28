@@ -1,9 +1,14 @@
 /**
  * 自由文入力のドライラン。
  *
- *   npx tsx scripts/parse-dryrun.ts                          # 辞書だけ（無料・APIを叩かない）
- *   npx tsx scripts/parse-dryrun.ts "朝は納豆ごはんとサラダ"    # 1文だけ辞書で試す
- *   npx tsx scripts/parse-dryrun.ts --live "ポテトサラダ"      # 実際にAPIを叩く（要 ANTHROPIC_API_KEY）
+ *   npm run dryrun:parse                          # 辞書だけ（無料・APIを叩かない）
+ *   npm run dryrun:parse -- "朝は納豆ごはんとサラダ"  # 1文だけ辞書で試す
+ *   npm run dryrun:parse -- --live "ポテトサラダ"    # 実際にAPIを叩く（課金される）
+ *
+ * キーはリポジトリ直下の `.env` に置く（`.gitignore` 済み）:
+ *   ANTHROPIC_API_KEY=sk-ant-...
+ * npm script が `--env-file-if-exists=.env` を付けているので読み込まれる。
+ * **`npx tsx scripts/parse-dryrun.ts` と直接叩くと .env は読まれない**（そのときは export する）。
  *
  * 既定では**LLMを呼ばない**。辞書（lib/lexicon.ts）でどこまで解けるかを見るためのもので、
  * 「LLMを呼ぶ／呼ばない」の判定がそのまま費用になるので、まずここの命中率を見る。
@@ -45,7 +50,8 @@ async function main() {
     return;
   }
   const system = buildSystemPrompt();
-  const approxTokens = Math.round(system.length / 2.2);
+  // 日本語はトークン密度が高い。実測（2091文字 → 約2690トークン）から 1.3倍で見積もる
+  const approxTokens = Math.round(system.length * 1.3);
   console.log(
     `辞書 ${SERVINGS.length}品目 / 固定プロンプト ${system.length}文字（約${approxTokens}トークン）`
   );
@@ -97,7 +103,11 @@ async function runLive(list: string[]) {
     process.exit(1);
   }
   if (!process.env.ANTHROPIC_API_KEY) {
-    console.error('ANTHROPIC_API_KEY が未設定です。export してから実行してください');
+    console.error(
+      'ANTHROPIC_API_KEY が未設定です。リポジトリ直下に .env を作ってください:\n' +
+        '  ANTHROPIC_API_KEY=sk-ant-...\n' +
+        '（直接 npx tsx で叩くと .env は読まれません。npm run dryrun:parse を使ってください）'
+    );
     process.exit(1);
   }
 

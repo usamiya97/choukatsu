@@ -5,12 +5,13 @@
  *
  * トグルは switch ロールで状態を読み上げさせる（色だけで on/off を表さない）。
  */
-import React from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CheckIcon, ChevronRightIcon } from '../../components/Icons';
 import { DEFAULT_TARGET_TOTAL, DIAGNOSIS, GUIDELINE_TOTAL, TARGET_OPTIONS, findServing, labelsForName } from '../../lib/dataset';
+import { looksLikeApiKey } from '../../lib/apikey';
 import { ATTRIBUTION, axisName } from '../../lib/format';
 import { useStore } from '../../lib/store';
 import { stageThresholds } from '../../lib/state';
@@ -18,7 +19,9 @@ import { SOLUBLE_CAP_G } from '../../lib/targets';
 import { colors, elevation, hit, radius, space, type } from '../../lib/theme';
 
 export default function SettingsScreen() {
-  const { profile, updateProfile, resetAll, gut, targets } = useStore();
+  const { profile, updateProfile, resetAll, gut, targets, hasApiKey, setApiKey } = useStore();
+  const [keyInput, setKeyInput] = useState('');
+  const [saving, setSaving] = useState(false);
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const q10 = DIAGNOSIS.questions.find((q) => q.id === 'q10');
@@ -135,6 +138,77 @@ export default function SettingsScreen() {
         </Pressable>
       </Card>
 
+      <Card
+        title="AI入力（任意）"
+        lead="自由文で食事を書いて記録できるようになります。入れなくてもアプリは全部使えます"
+      >
+        {hasApiKey ? (
+          <>
+            <Text style={styles.body}>キーは保存済みです</Text>
+            <Text style={styles.small}>
+              この端末の安全な領域（iOSはキーチェーン）に保存しています。記録には送りません。
+            </Text>
+            <Pressable
+              style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+              onPress={() =>
+                Alert.alert('キーを削除しますか', '自由文入力は、辞書で解ける範囲だけに戻ります。', [
+                  { text: 'やめる', style: 'cancel' },
+                  { text: '削除', style: 'destructive', onPress: () => void setApiKey(null) },
+                ])
+              }
+              accessibilityRole="button"
+              accessibilityLabel="保存したAPIキーを削除する"
+              accessibilityHint="確認のダイアログが出ます"
+            >
+              <Text style={[styles.rowText, styles.danger]}>キーを削除する</Text>
+            </Pressable>
+          </>
+        ) : (
+          <>
+            <TextInput
+              style={styles.keyInput}
+              value={keyInput}
+              onChangeText={setKeyInput}
+              placeholder="sk-ant-..."
+              placeholderTextColor={colors.textMuted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              // 入力中も伏せる。肩越しに見られる場所で開くことがある
+              secureTextEntry
+              accessibilityLabel="Anthropic の API キー"
+            />
+            <Pressable
+              style={({ pressed }) => [
+                styles.keySave,
+                !looksLikeApiKey(keyInput) && styles.keySaveOff,
+                pressed && styles.rowPressed,
+              ]}
+              disabled={!looksLikeApiKey(keyInput) || saving}
+              onPress={async () => {
+                setSaving(true);
+                try {
+                  await setApiKey(keyInput);
+                  setKeyInput('');
+                } catch {
+                  Alert.alert('保存できませんでした', 'この端末の安全な領域に書き込めませんでした。');
+                } finally {
+                  setSaving(false);
+                }
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="APIキーを保存する"
+              accessibilityState={{ disabled: !looksLikeApiKey(keyInput) }}
+            >
+              <Text style={styles.keySaveText}>{saving ? '保存中…' : '保存する'}</Text>
+            </Pressable>
+            <Text style={styles.small}>
+              console.anthropic.com で発行したキーを貼ってください。あなた自身の利用料がかかります
+              （1回の入力でおよそ0.5円）。キーはこの端末から出ません。
+            </Text>
+          </>
+        )}
+      </Card>
+
       <Card title="出典">
         <Text style={styles.small}>{ATTRIBUTION}</Text>
         <Text style={styles.small}>
@@ -189,6 +263,25 @@ const styles = StyleSheet.create({
   },
   cardTitle: { ...type.label },
   body: { ...type.body },
+  keyInput: {
+    minHeight: hit.min,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: space.md,
+    backgroundColor: colors.tap,
+    ...type.body,
+  },
+  keySave: {
+    minHeight: hit.min,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.md,
+    backgroundColor: colors.accentStrong,
+  },
+  // 押せないことを色だけで示さない。disabled も同時に渡している
+  keySaveOff: { backgroundColor: colors.badge },
+  keySaveText: { ...type.bodyStrong, color: '#FFFFFF' },
   small: { ...type.small },
   toggle: {
     minHeight: hit.min,

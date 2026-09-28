@@ -87,6 +87,13 @@ export function buildSystemPrompt(servings: Serving[] = SERVINGS): string {
     '- label は必ず一覧の文字列をそのまま使う。言い換えや新しい名前を作らない',
     '- count は常用量の何人前か。単位は一覧の単位。既定は1。0.5刻み',
     '- 一覧に無いものは items に入れず unknown に元の語を入れる',
+    '',
+    '**似ている別の食品に置き換えないこと。** 一覧に無ければ unknown に入れる。',
+    '例: 「ポテトサラダ」は一覧に無い。じゃがいもやポテトチップスに置き換えず unknown に入れる。',
+    '例: 「コロッケ」は一覧に無い。じゃがいもに置き換えず unknown に入れる。',
+    '材料が共通でも別の食品であり、繊維量が違う。',
+    '**同じ語を items と unknown の両方に入れないこと。** どちらか一方に決める。',
+    '',
     '- 栄養素の量やグラム数は答えない（こちらで一覧から引く）',
     '- 同じ食品が2回出てきたら count をまとめる',
     '',
@@ -152,6 +159,17 @@ export function resolveParsed(raw: unknown, servings: Serving[] = SERVINGS): Par
   const byDisplay = new Map(servings.map((s) => [s.displayName, s]));
   const entries: ParsedEntry[] = [];
   const dropped: string[] = [];
+  /**
+   * モデルが「当てられない」と言った語。**同じ語が items にも入っていたら items の方を捨てる。**
+   *
+   * 実際に起きた: 「ポテトサラダ」を unknown に入れつつ、items では
+   * ポテトチップスに置き換えて返してきた。近い材料の別食品にすり替えるのが
+   * このモデルの失敗の形で、繊維量が違うので記録に入れてはいけない。
+   * モデル自身が出した「当てられない」の申告を、置き換えより優先する。
+   */
+  const declined = new Set(
+    Array.isArray(obj.unknown) ? obj.unknown.filter((u): u is string => typeof u === 'string') : []
+  );
 
   for (const item of obj.items) {
     if (!item || typeof item !== 'object') continue;
@@ -163,17 +181,13 @@ export function resolveParsed(raw: unknown, servings: Serving[] = SERVINGS): Par
       dropped.push(label);
       continue;
     }
-    entries.push({
-      serving,
-      count: clampCount(count),
-      quoted: typeof quoted === 'string' ? quoted : serving.displayName,
-    });
+    const from = typeof quoted === 'string' ? quoted : serving.displayName;
+    // 同じ語を unknown にも入れているなら、その置き換えは信用しない
+    if (declined.has(from)) continue;
+    entries.push({ serving, count: clampCount(count), quoted: from });
   }
 
-  const unknown = [
-    ...(Array.isArray(obj.unknown) ? obj.unknown.filter((u): u is string => typeof u === 'string') : []),
-    ...dropped,
-  ];
+  const unknown = [...declined, ...dropped];
   return { entries: mergeSame(entries), unknown, fromLexicon: false, partial: entries.length === 0 };
 }
 

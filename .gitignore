@@ -31,6 +31,8 @@ yarn-error.*
 *.pem
 
 # local env files
+# .env も無視する（APIキーを書く場所。*.local だけだと素の .env が漏れる）
+.env
 .env*.local
 
 # typescript

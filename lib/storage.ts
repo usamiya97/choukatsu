@@ -53,9 +53,14 @@ export type UiState = {
    * 1件だけだと「1日おきに同じ文」が起きるので履歴で持つ（lib/coach.ts AVOID_DAYS）。
    */
   recentCoach: { id: string; date: string }[];
+  /**
+   * LLMが選んだ今日の提案（1日1回だけ生成する）。
+   * date が今日でなければ作り直す。**これがあるから1日に何度開いても呼ばれない。**
+   */
+  llmCoach: { date: string; id: string; lead: string | null } | null;
 };
 
-export const EMPTY_UI: UiState = { stage: 1, recentCoach: [] };
+export const EMPTY_UI: UiState = { stage: 1, recentCoach: [], llmCoach: null };
 
 async function read<T>(key: string, fallback: T): Promise<T> {
   try {

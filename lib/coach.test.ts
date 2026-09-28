@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { dailyIndex, pickCoach, resolveTrigger, shortfallTrigger } from './coach.ts';
+import { bannedWordsIn } from './safety.ts';
 import { shiftDays } from './state.ts';
 import type { Caution, CoachItem, Logs, Serving, Swap, Targets } from './types.ts';
 
@@ -189,11 +190,9 @@ test('提案文に内部名が漏れていない（(ゆで)などをユーザー
 });
 
 test('禁止語（治る・改善・便秘・セロトニン等）をカタログが含まない', () => {
-  const banned = ['治る', '改善', '効く', '解消', '便秘', '下痢', 'デトックス', '毒素', '老廃物', '痩せ', 'ダイエット', 'セロトニン'];
+  // リストは lib/safety.ts と共有する。LLMが書いた文も同じ定義で実行時に弾く
   for (const c of catalog) {
-    for (const word of banned) {
-      assert.ok(!c.message.includes(word), `${c.id} message: ${word}`);
-      assert.ok(!c.reason.includes(word), `${c.id} reason: ${word}`);
-    }
+    assert.deepEqual(bannedWordsIn(c.message), [], `${c.id} message`);
+    assert.deepEqual(bannedWordsIn(c.reason), [], `${c.id} reason`);
   }
 });

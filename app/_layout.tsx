@@ -57,6 +57,7 @@ function Gate() {
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="onboarding" options={{ title: 'はじめの10問', presentation: 'modal' }} />
       <Stack.Screen name="food/[label]" options={{ title: '食品のくわしい話' }} />
+      <Stack.Screen name="compose" options={{ title: 'まとめて書く', presentation: 'modal' }} />
     </Stack>
   );
 }

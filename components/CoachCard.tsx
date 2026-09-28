@@ -12,15 +12,20 @@ import { colors, elevation, radius, space, type } from '../lib/theme';
 
 export default function CoachCard({
   suggestion,
+  lead,
   onPress,
 }: {
   suggestion: CoachSuggestion;
+  /** LLMが書いた今日のひとこと。無ければ出さない（無い日の方が多い） */
+  lead?: string | null;
   onPress?: () => void;
 }) {
   const { item, evidence } = suggestion;
   const body = (pressed: boolean) => (
     <View style={[styles.card, pressed && styles.pressed]}>
       <Text style={styles.eyebrow}>今日の提案</Text>
+      {/* ひとことは提案の前。数値を含む主張はここには来ない（lib/coachllm.ts で弾く） */}
+      {lead ? <Text style={styles.lead}>{lead}</Text> : null}
       <Text style={styles.message}>{item.message}</Text>
       <Text style={styles.reason}>{item.reason}</Text>
       <View style={styles.footer}>
@@ -63,6 +68,7 @@ const styles = StyleSheet.create({
   },
   pressed: { backgroundColor: colors.tap },
   eyebrow: { ...type.tiny, color: colors.accentStrong, fontWeight: '700' },
+  lead: { ...type.small },
   message: { ...type.body, fontSize: 17, lineHeight: 26, fontWeight: '700' },
   reason: { ...type.small },
   footer: {

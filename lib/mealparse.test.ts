@@ -182,3 +182,37 @@ test('学習辞書はLLMが解いた分だけ増える', () => {
 test('辞書だけで済ます基準は当たり率で決める', () => {
   assert.ok(COVERAGE_MIN > 0 && COVERAGE_MIN <= 1);
 });
+
+/**
+ * 実際に起きた失敗。モデルが「ポテトサラダは一覧に無い」と unknown に入れながら、
+ * 同時に items ではポテトチップスに置き換えて返してきた。
+ * 材料が近いだけの別食品で繊維量が違うので、記録に入れてはいけない。
+ */
+test('同じ語を items と unknown の両方に返してきたら、置き換えの方を捨てる', () => {
+  const r = resolveParsed({
+    items: [
+      { label: 'ポテトチップス', count: 0.5, quoted: 'ポテトサラダ' },
+      { label: 'じゃがいも', count: 0.5, quoted: 'コロッケ' },
+      { label: '納豆', count: 1, quoted: '納豆' },
+    ],
+    unknown: ['ポテトサラダ', 'コロッケ'],
+  });
+  // 矛盾していない納豆だけが残る
+  assert.deepEqual(r.entries.map((e) => e.serving.label), ['納豆']);
+  assert.deepEqual(r.unknown, ['ポテトサラダ', 'コロッケ']);
+});
+
+test('unknown に無い語の置き換えは通す（過剰に捨てない）', () => {
+  const r = resolveParsed({
+    items: [{ label: 'レタス', count: 1, quoted: 'サラダ' }],
+    unknown: ['コロッケ'],
+  });
+  assert.deepEqual(r.entries.map((e) => e.serving.label), ['レタス']);
+});
+
+test('プロンプトが「似た食品への置き換え」を明示的に禁じている', () => {
+  const text = buildParseInput('x').system[0].text;
+  assert.ok(text.includes('置き換えない'), '置き換え禁止の指示がない');
+  assert.ok(text.includes('ポテトサラダ'), '実際に失敗した例が入っていない');
+  assert.ok(text.includes('両方に入れないこと'), '二重計上を禁じる指示がない');
+});
