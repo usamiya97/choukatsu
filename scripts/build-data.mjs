@@ -11,6 +11,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { SERVING_COLUMNS, derivedCells, deriveServing } from './servings-derive.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = join(ROOT, 'data');
@@ -74,6 +75,60 @@ function buildServings() {
     seen.add(it.label);
   }
   return items;
+}
+
+/**
+ * servings.csv の**計算で決まる列を成分表から作り直して突き合わせる**（2026-09-30 追加）。
+ *
+ * 置いた理由: 総量はAOAC・比率はプロスキーという**分析法が混ざった値**が23品目に入っていて、
+ * 水溶性が系統的に低く出ていた。1品目ずつ手で直せる形にしておくと必ず再発するので、
+ * 「成分表から導出した値と一致しない限りビルドを通さない」に変えた。
+ *
+ * 人が決める列（category〜code＝常用量と名前）は検査しない。あれは自前定義で、
+ * 成分表に答えが無い（TODO 21 のレビュー対象）。
+ */
+function verifyServingsAgainstTable() {
+  const header = readFileSync(join(SRC, 'servings.csv'), 'utf8')
+    .replace(/\r\n/g, '\n')
+    .trim()
+    .split('\n')[0]
+    .split(',');
+  if (header.join(',') !== SERVING_COLUMNS.join(',')) {
+    throw new Error(`servings.csv の列が servings-derive.mjs の想定と違う\n  期待 ${SERVING_COLUMNS.join(',')}\n  実際 ${header.join(',')}`);
+  }
+
+  const foods = new Map(readCsv('fiber_foods.csv').map((f) => [f.code, f]));
+  const rows = readCsv('servings.csv');
+  const bad = [];
+  for (const [i, r] of rows.entries()) {
+    const where = `servings.csv:${i + 2} ${r.display_name}`;
+    const food = foods.get(r.code);
+    if (!food) {
+      bad.push(`${where}: 食品番号 ${r.code} が成分表に無い`);
+      continue;
+    }
+    const d = deriveServing(food, Number(r.serving_g));
+    if (!d) {
+      bad.push(`${where}: 成分表に総量が無い（${food.name}）`);
+      continue;
+    }
+    const expected = derivedCells(d).map(String);
+    const actual = SERVING_COLUMNS.slice(7).map((c) => String(r[c]));
+    for (const [j, col] of SERVING_COLUMNS.slice(7).entries()) {
+      if (expected[j] !== actual[j]) {
+        bad.push(`${where}: ${col} が成分表と合わない（${actual[j]} → ${expected[j]}）`);
+      }
+    }
+  }
+  if (bad.length) {
+    throw new Error(
+      `servings.csv が成分表と一致しない ${bad.length}件:\n  ` +
+        bad.slice(0, 20).join('\n  ') +
+        (bad.length > 20 ? `\n  …ほか${bad.length - 20}件` : '') +
+        `\n\n  → node scripts/expand-servings.mjs --refresh で差分を確認し、--apply で直す`
+    );
+  }
+  return rows.length;
 }
 
 function buildSwaps() {
@@ -199,4 +254,6 @@ if (problems.length) {
   for (const p of problems) console.error('  - ' + p);
   process.exit(1);
 }
-console.log('\n検証OK: 参照切れ・禁止食品の混入・内部名の漏れ なし');
+const verified = verifyServingsAgainstTable();
+console.log(`\n検証OK: 参照切れ・禁止食品の混入・内部名の漏れ なし`);
+console.log(`検証OK: ${verified}品目の繊維量・2軸・分析法が成分表と一致（総量と比率が同じ法から出ている）`);

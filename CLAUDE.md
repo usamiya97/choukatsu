@@ -10,21 +10,28 @@
 ## Tech Stack
 
 TypeScript (strict) / Expo SDK 57 + Expo Router / React Native 0.86 / react-native-svg /
-AsyncStorage / expo-secure-store / expo-notifications（お通じの記録をうながす時刻・§15）/
+AsyncStorage / expo-secure-store / expo-notifications（お通じの時刻・§15）/
+expo-file-system + expo-sharing（記録の書き出しと読み込み・§17）/
 テストは `node:test` + tsx。**ESLint・Prettier・CI は未設定**（`npx expo lint` は設定がないため使わない）。
 
 ## Build & Run
 
 ```bash
 npm start           # prestart で build:data が走ってから Expo 起動
-npm run build:data  # data/*.csv → data/generated/*.json ＋ 相互参照の検証
-npm test            # 168件・端末不要
+npm run build:data  # data/*.csv → data/generated/*.json ＋ 相互参照と成分表との全件突き合わせ
+npm test            # 180件・端末不要
 npm run typecheck   # tsc --noEmit
 npm run dryrun      # 6シナリオ分の画面文言と数字を表示（引数で目標値を変えられる）
 npm run dryrun:parse # 自由文入力が辞書だけでどこまで解けるか（LLMを呼ばない）
 ```
 
 **作業を終える前に `npm test` と `npm run typecheck` を必ず通す。**
+
+⚠️ `npx expo install <pkg>` は peer 依存の衝突で失敗する（`react-dom@19.3.0` が `react@^19.3.0` を
+要求し、本体は `react@19.2.3`。react は SDK 57 / RN 0.86 の組み合わせで固定なので上げない）。
+追加するときは **`npm install <pkg>@<SDKのバージョン> --legacy-peer-deps`**。
+バージョンは `node_modules/expo/bundledNativeModules.json` を見る。
+素の `npm install`（引数なし）は通る。
 画面の文言や数値を変えたら `npm run dryrun` で目視確認する。
 
 ## アーキテクチャ — 一方通行を壊さない
@@ -58,20 +65,25 @@ lib/format.ts          数値→日本語。小数点を出さない
 lib/coach.ts           提案の選択（LLMは使わない・カタログ37件から決定論的に選ぶ）
 lib/stool.ts           お通じの語彙・数え方・言い方＋うながす時刻（純粋関数・DESIGN §15）
 lib/review.ts          週の振り返り（直近7日ローリング・前週比・共有テキスト・DESIGN §16）
+lib/backup.ts          記録の書き出し・読み込み（純粋関数・検査とマージ・DESIGN §17）
+lib/backupfile.ts      ファイルと共有シートを触る唯一の場所
 lib/reminder.ts        通知を触る唯一の場所。使えない端末では動かないだけで落とさない
 lib/lexicon.ts         自由文→プリセットの辞書（549キーを最長一致で走査・LLMなし）
-lib/mealparse.ts       自由文のLLM名寄せ。クライアントは注入する（DESIGN §14）
+lib/mealparse.ts       自由文のLLM名寄せ。クライアントは注入する（DESIGN §14・**いまは渡していない**）
 lib/coachllm.ts        コーチ提案のLLM化。カタログから選ばせるだけで文は作らせない
 lib/safety.ts          禁止語と数字の検査。カタログのビルド検査と実行時検査で共有する
-lib/apikey.ts          BYOKの保管（expo-secure-store）。バンドルに鍵を入れない
-lib/anthropic.ts       SDKを触る唯一の場所。プロキシに移すときはここだけ差し替える
+lib/apikey.ts          前バージョンのキーの後片付けだけ（BYOKは2026-10-01に廃止・§19）
+lib/anthropic.ts       SDKを触る唯一の場所。**いまは誰も import していない**（プロキシ時に復活）
 lib/theme.ts           デザイントークン。生の色・生の数値を書かない唯一の出口
-scripts/expand-servings.mjs  食品の追加（繊維量は成分表から計算・手入力しない）
+scripts/expand-servings.mjs  食品の追加（繊維量は成分表から計算・手入力しない）。`--refresh` で既存行も作り直す
+scripts/servings-derive.mjs  繊維量と2軸の導出式（生成とビルド検証で共有する唯一の定義）
 ```
 
 ## 譲れない不変条件（変更前に DESIGN.md と該当テストを読む）
 
 - **数値はデータから決定論的に出す。LLMに計算させない**
+- **2軸の比率は総量と同じ分析法の内訳から出す**（成分表は同じ食品でも法で値が違う・DESIGN §18）。
+  導出は `scripts/servings-derive.mjs` だけ。`npm run build:data` が成分表と全件突き合わせて落とす
 - 段階は7日平均・ヒステリシス1.5g。**今日は平均に入れない**
 - 7日の窓が空（空白8日以上）になったら平均で段階を決めない。**空白1週ごとに上限を1段**下げる
   （`idleStageCeiling`）。前回の段階から引く形にすると二重に落ちる。DESIGN §2
@@ -90,7 +102,12 @@ scripts/expand-servings.mjs  食品の追加（繊維量は成分表から計算
 - 自由文入力は辞書で解けたらLLMを呼ばない（呼び出し回数＝費用）
 - **コーチは1日1回だけ呼ぶ**（`UiState.llmCoach.date`）。何度開いても課金しない
 - **LLMが書いた文に数字を許さない。** 数値を含む主張はカタログ／データから
-- APIキーはバンドルに入れない。`app.json` の extra や `EXPO_PUBLIC_*` は使わない
+- **APIキーをアプリに持たせない。** BYOKの入力欄は廃止（§19）。鍵はプロキシ側が持つ。
+  `app.json` の extra や `EXPO_PUBLIC_*` に鍵を置かない
+- **LLMを呼ぶ経路は、課金とプロキシが揃うまで開けない。** 層とテストは残してあるが
+  `lib/store.tsx` から呼んでいない（コーチを毎日呼ぶと月$0.38/人の固定費になる）
+- **バックアップにAPIキーを入れない**（人に渡るファイル）。段階と通知のオンオフも入れない
+- 記録の取り込みは**足すだけ**。いま記録がある日を上書きしない（入れ替えは「すべて消す」→取り込み）
 - 読み取り結果をそのまま記録しない。必ず確認を挟む
 - `method`（分析法）が違う食品同士で置き換えを出さない
 - 動きは transform/opacity のみ。「視差効果を減らす」ONで全部止める

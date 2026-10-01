@@ -1,20 +1,27 @@
 /**
- * servings.csv に品目を追加するためのスクリプト。
- *   node scripts/expand-servings.mjs           # 追加分のCSV行を標準出力に出す
- *   node scripts/expand-servings.mjs --apply   # data/servings.csv に追記する
+ * servings.csv の品目を追加・作り直しするスクリプト。
+ *   node scripts/expand-servings.mjs             # 追加分のCSV行を標準出力に出す
+ *   node scripts/expand-servings.mjs --apply     # data/servings.csv に追記する
+ *   node scripts/expand-servings.mjs --refresh   # 既存178行の**導出列を作り直して差分を見る**
+ *   node scripts/expand-servings.mjs --refresh --apply   # 作り直した内容で書き戻す
  *
  * なぜスクリプトにするか:
  *  - **繊維の値を手で書かない。** 食品番号から fiber_foods.csv（成分表）を引いて計算する。
  *    手入力すると必ず桁を間違える。ハルシネーションも混ざる
- *  - 2軸は比率方式（data/README.md）。内訳の実測から比率を出し、総量に掛ける
+ *  - 2軸は比率方式（data/README.md）。**総量と同じ分析法の内訳**から比率を出す
  *  - tier（A/B/C/Z）は総量から機械的に決める
  *
- * 人が決めるのは `ADDITIONS` の常用量（unit / grams）と表示名・別名だけ。
- * ここは自前定義なので TODO の「21. 常用量テーブルのレビュー」の対象。
+ * 人が決めるのは常用量（unit / grams）と表示名・別名・食品番号だけ。
+ * 常用量は自前定義なので TODO の「21. 常用量テーブルのレビュー」の対象。
+ *
+ * 導出の式は scripts/servings-derive.mjs にあり、ビルド時の検証（build-data.mjs）と共有する。
+ * --refresh があるのは、式を直したときに既存行へ反映できるようにするため
+ * （2026-09-30 に比率の取り方を直したときに使った）。
  */
-import { readFileSync, appendFileSync } from 'node:fs';
+import { readFileSync, appendFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { SERVING_COLUMNS, derivedCells, deriveServing, tierOf, num, r2 } from './servings-derive.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = join(ROOT, 'data');
@@ -109,36 +116,6 @@ const foods = new Map(
 const existing = readFileSync(join(SRC, 'servings.csv'), 'utf8').trim().split('\n');
 const existingLabels = new Set(existing.slice(1).map((l) => l.split(',')[0 + 1]));
 
-const num = (v) => (v === '' ? null : Number(v));
-const r2 = (v) => Math.round(v * 100) / 100;
-
-/**
- * 内訳（水溶性の比率）。実測がある方式を使い、無ければ 0 とし推定であることを記録する。
- * 藻類は内訳実測が水溶0%（アルギン酸がカルシウム塩として不溶性に分類される・data/README.md）
- * なので、0 を当てる根拠がある。
- */
-function breakdown(food) {
-  const sp = num(food.soluble_prosky);
-  const ip = num(food.insoluble_prosky);
-  if (sp !== null && ip !== null && sp + ip > 0) {
-    return { ratio: sp / (sp + ip), source: 'prosky実測' };
-  }
-  const sl = num(food.sol_low_aoac) ?? 0;
-  const sh = num(food.sol_high_aoac) ?? 0;
-  const ia = num(food.insol_aoac);
-  if (ia !== null && sl + sh + ia > 0) {
-    return { ratio: (sl + sh) / (sl + sh + ia), source: 'aoac実測' };
-  }
-  return { ratio: 0, source: '推定(同群実測0%)' };
-}
-
-function tierOf(total) {
-  if (total <= 0) return 'Z';
-  if (total >= 3) return 'A';
-  if (total >= 1) return 'B';
-  return 'C';
-}
-
 const out = [];
 const problems = [];
 
@@ -156,36 +133,64 @@ for (const [category, label, display, aliases, unit, grams, code] of ADDITIONS) 
     problems.push(`${label}: 総量が未測定（${food.name}）`);
     continue;
   }
-  const per100 = Number(food.fiber_total);
-  const total = r2((per100 * grams) / 100);
-  const { ratio, source } = breakdown(food);
-  const soluble = r2(total * ratio);
-  const insoluble = r2(total - soluble);
-  out.push(
-    [
-      category,
-      label,
-      display,
-      aliases,
-      unit,
-      grams,
-      code,
-      food.name,
-      per100.toFixed(1),
-      total,
-      r2(ratio),
-      soluble,
-      insoluble,
-      source,
-      food.method,
-      tierOf(total),
-    ].join(',')
-  );
+  const d = deriveServing(food, grams);
+  out.push([category, label, display, aliases, unit, grams, code, ...derivedCells(d)].join(','));
 }
 
 if (problems.length) {
   console.error('スキップした品目:');
   for (const p of problems) console.error('  - ' + p);
+}
+
+/**
+ * 既存行の導出列を作り直す。人が決める7列（category〜code）はそのまま残す。
+ * **式を直したときに、既存の品目へ反映するための口。**
+ */
+if (process.argv.includes('--refresh')) {
+  const header = existing[0].split(',');
+  if (header.join(',') !== SERVING_COLUMNS.join(',')) {
+    console.error('servings.csv の列が想定と違う:');
+    console.error(`  期待 ${SERVING_COLUMNS.join(',')}`);
+    console.error(`  実際 ${header.join(',')}`);
+    process.exit(1);
+  }
+  const changes = [];
+  const refreshed = [existing[0]];
+  for (const line of existing.slice(1)) {
+    const c = line.split(',');
+    const [category, label, display, aliases, unit, grams, code] = c;
+    const food = foods.get(code);
+    if (!food) {
+      console.error(`${label}: 食品番号 ${code} が成分表に無い`);
+      process.exit(1);
+    }
+    const d = deriveServing(food, Number(grams));
+    if (!d) {
+      console.error(`${label}: 総量が未測定（${food.name}）`);
+      process.exit(1);
+    }
+    const next = [category, label, display, aliases, unit, grams, code, ...derivedCells(d)];
+    // 変わった列だけを記録する（比率を直したときに何が動いたかを見るため）
+    for (let i = 7; i < SERVING_COLUMNS.length; i++) {
+      if (String(c[i]) !== String(next[i])) {
+        changes.push(`${display}  ${SERVING_COLUMNS[i]}: ${c[i]} → ${next[i]}`);
+      }
+    }
+    refreshed.push(next.join(','));
+  }
+  if (changes.length) {
+    console.error(`導出列の差分 ${changes.length}件:`);
+    for (const ch of changes) console.error('  ' + ch);
+  } else {
+    console.error('導出列の差分なし');
+  }
+  if (process.argv.includes('--apply')) {
+    writeFileSync(join(SRC, 'servings.csv'), refreshed.join('\n') + '\n');
+    console.error(`\ndata/servings.csv を作り直した（${refreshed.length - 1}行）`);
+  } else {
+    console.error('\n--apply で servings.csv に書き戻す');
+  }
+  process.exit(0);
 }
 
 if (process.argv.includes('--apply')) {

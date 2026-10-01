@@ -156,8 +156,7 @@ export default function ReviewScreen() {
         </Text>
         <Text style={styles.body}>{stoolLine ?? 'この7日はまだ記録がありません'}</Text>
         <Text style={styles.note}>
-          食物繊維との関係は書きません（このアプリで確かめられることではないため）。
-          並べて見て、気づいたことはご自身の判断で
+          食物繊維との関係は決めつけません。並べて見て、気づいたことはご自身の判断で
         </Text>
       </View>
 
@@ -172,7 +171,7 @@ export default function ReviewScreen() {
         </Text>
       </Pressable>
       <Text style={styles.foot}>
-        共有すると、日ごとの数字と出典を入れた文章をそのまま送れます（端末の共有シート）
+        日ごとの数字と出典を入れた文章を、そのままメッセージやメールで送れます
       </Text>
     </ScrollView>
   );

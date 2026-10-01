@@ -5,8 +5,9 @@
  * 入力の取り違え（ポテトサラダ→ポテトチップス等）は記録の信頼をいちばん早く壊すので、
  * 「これで合っていますか」を1枚必ず通す。外したいものは個別に外せる。
  *
- * 辞書（lib/lexicon.ts）で解ければAPIを呼ばない。キーが未設定でも
- * 辞書の範囲では普通に使える（使えない機能にしない）。
+ * **いまは端末の辞書（lib/lexicon.ts・549キー）だけで解く。** LLMは呼んでいない（DESIGN §19）。
+ * 辞書だけでも代表8文のうち6件は完結するので、この画面は AI 無しで成立する。
+ * プロキシができたら、解けなかった断片だけをLLMに渡す経路が復活する（§14-1）。
  */
 import React, { useState } from 'react';
 import {
@@ -33,7 +34,7 @@ import { colors, elevation, hit, radius, space, type } from '../lib/theme';
 type Candidate = ParsedEntry & { on: boolean };
 
 export default function ComposeScreen() {
-  const { parseText, addEntry, hasApiKey } = useStore();
+  const { parseText, addEntry } = useStore();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [text, setText] = useState('');
@@ -107,12 +108,10 @@ export default function ComposeScreen() {
           )}
         </Pressable>
 
-        {!hasApiKey ? (
-          <Text style={styles.note}>
-            いまは端末の辞書だけで読み取っています。設定でAIを有効にすると、
-            辞書に無い書き方も読み取れるようになります
-          </Text>
-        ) : null}
+        <Text style={styles.note}>
+          登録のある食べものの名前を見つけて読み取ります。見つからなかったものは
+          下に出るので、記録タブから探して足してください
+        </Text>
 
         {candidates ? (
           <View style={styles.result}>

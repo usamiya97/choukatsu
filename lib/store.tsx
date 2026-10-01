@@ -3,15 +3,25 @@
  */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { CAUTIONS, COACH, SERVINGS, SWAPS, findServing, targetsFor } from './dataset';
-import { clearApiKey, loadApiKey, saveApiKey } from './apikey';
-import { createCoachClient, createParseClient } from './anthropic';
+import { clearApiKey } from './apikey';
 import { learnFrom, parseMeal, type ParseResult } from './mealparse';
 import type { Learned } from './lexicon';
-import { coachCandidates, evidenceOf, pickCoach, resolveTrigger, type CoachSuggestion } from './coach';
-import { llmCoach } from './coachllm';
-import { computeGutState, dateKey, daysSinceLastLog, indexServings, shiftDays, type GutState } from './state';
+import { evidenceOf, pickCoach, type CoachSuggestion } from './coach';
+import { computeGutState, dateKey, indexServings, shiftDays, type GutState } from './state';
 import { putStool, removeStool, stoolWeek as stoolWeekOf, type StoolWeek } from './stool';
 import { cancelReminder, ensureReminderPermission, scheduleReminder } from './reminder';
+import {
+  backupFileName,
+  backupText,
+  buildBackup,
+  mergeBackup,
+  parseBackup,
+  summarize,
+  type Backup,
+  type BackupSummary,
+  type MergeReport,
+} from './backup';
+import { pickBackup, shareBackup, type ExportOutcome } from './backupfile';
 import {
   EMPTY_PROFILE,
   EMPTY_UI,
@@ -57,12 +67,11 @@ type Store = {
   resetAll: () => void;
   totalsOf: (entries: LogEntry[]) => Totals;
 
-  /** APIキーが入っているか。入っていなければ自由文は辞書だけで解く */
-  hasApiKey: boolean;
-  setApiKey: (value: string | null) => Promise<void>;
   /**
    * 自由文を品目に当てる。**返り値は提案で、記録はしない。**
-   * 確認画面で選んでから addEntry を呼ぶ
+   * 確認画面で選んでから addEntry を呼ぶ。
+   *
+   * いまは**端末の辞書だけ**で解く（LLMは呼ばない・下の「AIの経路」を参照）
    */
   parseText: (text: string) => Promise<ParseResult>;
 
@@ -81,7 +90,23 @@ type Store = {
    * 時刻だけ保存してホームの行で催促する）
    */
   setStoolReminder: (at: string | null, notify: boolean) => Promise<boolean>;
+
+  /* 書き出し・読み込み（DESIGN §17）。**サーバを持たないので、ここが記録を失わない唯一の手段** */
+  /** 記録をファイルにして共有シートに渡す */
+  exportBackup: () => Promise<ExportOutcome>;
+  /**
+   * ファイルを選んで**中身を検査するだけ**。まだ書き込まない。
+   * 確認を挟んでから applyBackup を呼ぶ（読み取り結果をそのまま記録しない・CLAUDE.md）
+   */
+  readBackup: () => Promise<ReadBackupOutcome>;
+  /** 取り込む。**足すだけ**で、いま記録がある日は上書きしない（lib/backup.ts mergeBackup） */
+  applyBackup: (backup: Backup) => MergeReport;
 };
+
+export type ReadBackupOutcome =
+  | { ok: true; backup: Backup; summary: BackupSummary; name: string }
+  | { ok: false; canceled: true }
+  | { ok: false; canceled?: false; reason: string };
 
 const StoreContext = createContext<Store | null>(null);
 
@@ -91,29 +116,29 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<Profile>(EMPTY_PROFILE);
   const [ui, setUi] = useState<UiState>(EMPTY_UI);
   const [stool, setStoolLog] = useState<StoolLog>({});
-  // 自由文の学習辞書と、BYOKのAPIキー。どちらも無くてもアプリは動く
+  // 自由文の学習辞書。無くてもアプリは動く
   const [learned, setLearned] = useState<Learned>({});
-  const [apiKey, setApiKeyState] = useState<string | null>(null);
   // 日付は「今日」を跨いだら変わる。復帰時に再評価する
   const [today, setToday] = useState(() => dateKey());
 
   useEffect(() => {
     (async () => {
-      const [l, p, u, lex, key, st] = await Promise.all([
+      const [l, p, u, lex, st] = await Promise.all([
         loadLogs(),
         loadProfile(),
         loadUi(),
         loadLearned(),
-        loadApiKey(),
         loadStool(),
       ]);
       setLogs(l);
       setProfile(p);
       setUi(u);
       setLearned(lex);
-      setApiKeyState(key);
       setStoolLog(st);
       setReady(true);
+      // 入力欄を外したので、前のバージョンで保存されたキーは残しておく理由が無い。
+      // 消えないまま端末のキーチェーンに置き続けるより、使わないなら消す
+      void clearApiKey();
     })();
   }, []);
 
@@ -272,6 +297,39 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [updateProfile]
   );
 
+  /* ─── 書き出し・読み込み（DESIGN §17） ───────────────── */
+
+  const exportBackup = useCallback(async (): Promise<ExportOutcome> => {
+    const b = buildBackup({ profile, logs, stool, learned });
+    return shareBackup(backupFileName(b), backupText(b));
+  }, [profile, logs, stool, learned]);
+
+  const readBackup = useCallback(async (): Promise<ReadBackupOutcome> => {
+    const picked = await pickBackup();
+    if (!picked.ok) {
+      return picked.canceled ? { ok: false, canceled: true } : { ok: false, reason: picked.reason };
+    }
+    const parsed = parseBackup(picked.text);
+    if (!parsed.ok) return { ok: false, reason: parsed.reason };
+    return { ok: true, backup: parsed.backup, summary: summarize(parsed.backup), name: picked.name };
+  }, []);
+
+  const applyBackup = useCallback(
+    (backup: Backup): MergeReport => {
+      const report = mergeBackup({ profile, logs, stool, learned }, backup);
+      setLogs(report.logs);
+      void saveLogs(report.logs);
+      setStoolLog(report.stool);
+      void saveStool(report.stool);
+      setLearned(report.learned);
+      void saveLearned(report.learned);
+      // 段階はここで触らない。取り込んだ記録から computeGutState が決め直す
+      updateProfile(report.profile);
+      return report;
+    },
+    [profile, logs, stool, learned, updateProfile]
+  );
+
   /**
    * 起動時に予約を貼り直す。OS側に残る予約なので普段は不要だが、
    * **許可が後から切られた／OSが予約を落とした**ときにここで戻る。
@@ -304,54 +362,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       .filter((s): s is Serving => Boolean(s));
   }, [logs, today, byLabel]);
 
-  /**
-   * LLMに今日の提案を選ばせる。**1日1回だけ。**
-   * `ui.llmCoach.date` が今日なら呼ばない（何度開いても課金されない）。
+  /* ─── AIの経路（2026-10-01 時点では呼ばない） ─────────────────
+   * 自由文の名寄せ（lib/mealparse.ts）とコーチのひとこと（lib/coachllm.ts）は
+   * 層としては出来ているが、**ここから呼んでいない。**
    *
-   * 失敗・未設定のときは何もしない ＝ カタログの選び方（`coach`）がそのまま出る。
+   * 理由は配り方。自分のAPIキーを貼れる人は限られるので、BYOKでは一般に届かない。
+   * かといって開発者のキーで肩代わりすると、コーチは全員ぶん毎日発生して
+   * インストール数に比例した固定費になる（概算 $0.38/人/月）。
+   * **課金とプロキシが揃うまで呼ばない**のが正しい順序（DESIGN §14-5・§19）。
+   *
+   * 開けるときに触るのは:
+   *  - `lib/anthropic.ts`（クライアントの作り方。プロキシのURLに差し替える）
+   *  - ここ（呼び出しの頻度。コーチは毎日ではなく**週1回**にする）
+   *  - `parseText`（下）に client を渡す
+   * 層とテストは残してあるので、消して作り直す必要はない。
    */
-  const llmAsked = useRef<string | null>(null);
-  useEffect(() => {
-    if (!ready || !apiKey) return;
-    if (ui.llmCoach?.date === today) return;
-    // 同じ日に二重で走らせない（stateの更新で再実行されるため、ref でも止める）
-    if (llmAsked.current === today) return;
-    llmAsked.current = today;
-
-    const ctx = {
-      logs,
-      todayKey: today,
-      servings: SERVINGS,
-      catalog: COACH,
-      swaps: SWAPS,
-      cautions: CAUTIONS,
-      targets,
-      excludedFoods: profile.excludedFoods,
-      recentShown: ui.recentCoach,
-    };
-    const candidates = coachCandidates(ctx, resolveTrigger(ctx));
-    const gap = daysSinceLastLog(logs, today);
-
-    void (async () => {
-      const result = await llmCoach(
-        {
-          candidates,
-          today: gut.today,
-          targets,
-          weekLogDays: gut.weekLogDays,
-          frequent: frequent.slice(0, 3).map((f) => f.displayName),
-          gapDays: gap ?? 0,
-        },
-        createCoachClient(apiKey)
-      );
-      if (!result) return;
-      setUi((prev) => {
-        const next = { ...prev, llmCoach: { date: today, id: result.item.id, lead: result.lead } };
-        void saveUi(next);
-        return next;
-      });
-    })();
-  }, [ready, apiKey, today, ui.llmCoach?.date, ui.recentCoach, logs, targets, profile.excludedFoods, gut.today, gut.weekLogDays, frequent]);
 
   const totalsOf = useCallback(
     (entries: LogEntry[]): Totals =>
@@ -370,26 +395,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [byLabel]
   );
 
-  const setApiKey = useCallback(async (value: string | null) => {
-    if (value) {
-      await saveApiKey(value);
-      setApiKeyState(value.trim());
-    } else {
-      await clearApiKey();
-      setApiKeyState(null);
-    }
-  }, []);
-
   /**
    * 自由文を当てる。辞書で足りればLLMを呼ばない（呼び出し回数＝費用）。
    * **記録はしない。** 返した候補を確認画面で選んでもらってから addEntry する
    */
   const parseText = useCallback(
     async (text: string): Promise<ParseResult> => {
-      const result = await parseMeal(text, {
-        client: apiKey ? createParseClient(apiKey) : undefined,
-        learned,
-      });
+      // client を渡さない＝辞書だけで解く。プロキシができたらここに渡す
+      const result = await parseMeal(text, { learned });
       // LLMが解いた語は覚えて、次回から辞書だけで済ませる
       const next = learnFrom(result, learned);
       if (next !== learned && Object.keys(next).length !== Object.keys(learned).length) {
@@ -398,7 +411,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
       return result;
     },
-    [apiKey, learned]
+    [learned]
   );
 
   const value: Store = {
@@ -419,8 +432,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     updateProfile,
     resetAll,
     totalsOf,
-    hasApiKey: apiKey !== null,
-    setApiKey,
     parseText,
     stool,
     todayStool,
@@ -428,6 +439,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setStool,
     clearStool,
     setStoolReminder,
+    exportBackup,
+    readBackup,
+    applyBackup,
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
